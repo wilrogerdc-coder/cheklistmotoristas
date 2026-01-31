@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Checklist Viatura produção atualização",
+  "description": "Sistema profissional de checklist de viaturas com inspeção visual, registro de danos, anexo de fotos e geração de PDF.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
