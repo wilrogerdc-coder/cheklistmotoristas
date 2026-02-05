@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
@@ -18,37 +19,22 @@ import {
 } from './types';
 import { 
   Printer, 
-  Camera, 
-  Trash2, 
   Settings as SettingsIcon,
-  CalendarDays,
   CheckCircle2,
-  Download,
-  Upload,
-  Image as ImageIcon,
-  CarFront,
-  Eye,
-  EyeOff,
-  ClipboardCheck,
-  Fingerprint,
-  Tag,
-  Info,
   ChevronUp,
   ChevronDown,
   Loader2,
-  AlertOctagon,
-  Clock
+  Map,
+  EyeOff,
+  Save,
+  Upload
 } from 'lucide-react';
 
-const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzfcjGUbSvHrWUPQjMZeE1_ndzSjYhKQQMaQGU1e2KcAZfTJVLkfiG4vJFudJV5VL_t/exec';
-
-// Declarações globais para bibliotecas injetadas no index.html
-declare const html2canvas: any;
-declare const jspdf: any;
+const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbz4tRvSdFPBJH5F8RBBg-30Br4e1-Ut4dxFSFejKvJtR8sgxgx5lZ25xHAvz_Z-4rK1/exec';
 
 const App: React.FC = () => {
   const [view, setView] = useState<'checklist' | 'settings'>('checklist');
-  const [activeTabInSettings, setActiveTabInSettings] = useState<'items' | 'images' | 'style' | 'about' | 'admin'>('items');
+  const [activeTabInSettings, setActiveTabInSettings] = useState<'items' | 'images' | 'style' | 'about' | 'admin' | 'manual'>('items');
   const [showDamageMap, setShowDamageMap] = useState(true);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -60,9 +46,7 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as AppSettings;
-        if (!parsed.googleSheetUrl) {
-          parsed.googleSheetUrl = FIXED_GOOGLE_SHEET_URL;
-        }
+        if (!parsed.googleSheetUrl) parsed.googleSheetUrl = FIXED_GOOGLE_SHEET_URL;
         return parsed;
       } catch (e) {
         console.error("Failed to parse settings", e);
@@ -108,6 +92,43 @@ const App: React.FC = () => {
   const themeColor = settings.headerBgColor || '#b91c1c';
   const printScale = settings.printScale || 1.0;
 
+  const compressImage = (base64Str: string): Promise<string> => {
+    return new Promise((resolve) => {
+      if (!base64Str || !base64Str.startsWith('data:image')) {
+        resolve(base64Str);
+        return;
+      }
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1200;
+        const MAX_HEIGHT = 1200;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.onerror = () => resolve(base64Str);
+    });
+  };
+
   useEffect(() => {
     const filteredDefaults = settings.defaultItems.filter(i => 
       i.frequency === data.checklistType || i.frequency === 'Ambos'
@@ -143,13 +164,13 @@ const App: React.FC = () => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
+    reader.onloadend = async () => {
+      const compressed = await compressImage(reader.result as string);
       setData(prev => ({
         ...prev,
         items: prev.items.map(item => 
           item.id === id 
-            ? { ...item, photos: [...(item.photos || []), result] }
+            ? { ...item, photos: [...(item.photos || []), compressed] }
             : item
         )
       }));
@@ -157,23 +178,10 @@ const App: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const removeItemPhoto = (itemId: string, photoIndex: number) => {
-    setData(prev => ({
-      ...prev,
-      items: prev.items.map(item => 
-        item.id === itemId
-          ? { ...item, photos: item.photos?.filter((_, idx) => idx !== photoIndex) }
-          : item
-      )
-    }));
-  };
-
   const handleSaveToGeneralNotes = (id: string) => {
     const item = data.items.find(i => i.id === id);
     if (!item || !item.observation) return;
-
     const textToAdd = `${item.label}: ${item.observation}`;
-    
     setData(prev => ({
       ...prev,
       generalObservation: prev.generalObservation 
@@ -182,90 +190,62 @@ const App: React.FC = () => {
     }));
   };
 
-  const addDamage = (x: number, y: number, imageIndex: number) => {
-    const newDamage: DamagePoint = { id: crypto.randomUUID(), x, y, imageIndex, description: 'Dano' };
-    setData(prev => ({ ...prev, damages: [...prev.damages, newDamage] }));
-  };
-
-  const removeDamage = (id: string) => {
-    setData(prev => ({ ...prev, damages: prev.damages.filter(d => d.id !== id) }));
-  };
-
-  const handleVehicleImageUpload = (index: number, base64: string) => {
+  const handleVehicleImageUpload = async (index: number, base64: string) => {
+    const compressed = await compressImage(base64);
     const newImages = [...data.vehicleImages];
-    newImages[index] = base64;
+    newImages[index] = compressed;
     setData(prev => ({ ...prev, vehicleImages: newImages }));
-  };
-
-  const handleVehicleImageRatioUpdate = (index: number, ratio: AspectRatio) => {
-    const newRatios = [...(data.vehicleImageRatios || INITIAL_VEHICLE_RATIOS)];
-    newRatios[index] = ratio;
-    setData(prev => ({ ...prev, vehicleImageRatios: newRatios }));
-  }
-
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    const fileList = Array.from(files) as File[];
-    fileList.forEach(file => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        setData(prev => ({ ...prev, photos: [...prev.photos, result] }));
-      };
-      reader.readAsDataURL(file);
-    });
   };
 
   const handleSaveSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);
     localStorage.setItem('checkviatura_settings', JSON.stringify(newSettings));
+    setView('checklist');
   };
 
-  const exportData = () => {
-    const jsonString = JSON.stringify(data, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
+  const handleExportModel = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `modelo_checklist_${data.prefix || 'vtr'}_${data.date}.json`;
-    document.body.appendChild(link);
+    link.download = `modelo_${data.prefix || 'viatura'}.json`;
     link.click();
-    document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const handleImportModel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const importedData = JSON.parse(event.target?.result as string);
+        if (importedData.items && importedData.checklistType) {
+          setData({ 
+            ...importedData, 
+            id: crypto.randomUUID(),
+            date: new Date().toISOString().split('T')[0] // Mantém a data de hoje ao importar
+          });
+          alert("Modelo importado com sucesso!");
+        } else {
+          throw new Error("Formato inválido");
+        }
+      } catch (err) {
+        alert("Erro ao importar modelo. Verifique se o arquivo é um JSON de checklist válido.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset input para permitir nova importação do mesmo arquivo se necessário
   };
 
   const saveLogToGoogleSheets = async () => {
     const targetUrl = settings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
     if (!targetUrl) return;
     
-    // Pequeno delay para garantir que o DOM refletiu os inputs antes do print/save
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    // Captura screenshot do checklist antes de salvar
-    let screenshotBase64 = '';
-    if (checklistRef.current) {
-      try {
-        const canvas = await html2canvas(checklistRef.current, {
-          scale: 1,
-          useCORS: true,
-          logging: false,
-          backgroundColor: '#ffffff',
-          windowWidth: checklistRef.current.scrollWidth,
-          windowHeight: checklistRef.current.scrollHeight
-        });
-        screenshotBase64 = canvas.toDataURL('image/jpeg', 0.6);
-      } catch (e) {
-        console.error("Falha ao capturar screenshot", e);
-      }
-    }
-
     const itemsOk = data.items.filter(i => i.status === 'OK').length;
     const itemsCn = data.items.filter(i => i.status === 'CN').length;
-    
-    const inspectorName = String(data.signatureName || '').trim();
-    const inspectorRank = String(data.signatureRank || '').trim();
-    const inspectorFullName = `${inspectorRank} ${inspectorName}`.trim() || 'NÃO IDENTIFICADO';
+    const inspectorFullName = `${data.signatureRank || ''} ${data.signatureName || ''}`.trim() || 'NÃO IDENTIFICADO';
 
     const itemsDetailArray = data.items.map(i => ({
       label: i.label,
@@ -276,21 +256,18 @@ const App: React.FC = () => {
     const dataForMirror = {
       ...data,
       signatureFull: inspectorFullName,
-      items: data.items.map(item => ({ 
-        ...item, 
-        photos: [] 
-      })),
-      photos: []
+      headerTitle: settings.headerTitle,
+      headerBgColor: settings.headerBgColor,
+      headerLogoUrl1: settings.headerLogoUrl1,
+      headerLogoUrl2: settings.headerLogoUrl2
     };
 
-    const now = new Date();
-    const brDate = new Date(now.toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
-    const formattedDateTime = `${String(brDate.getDate()).padStart(2, '0')}/${String(brDate.getMonth() + 1).padStart(2, '0')}/${brDate.getFullYear()} ${String(brDate.getHours()).padStart(2, '0')}:${String(brDate.getMinutes()).padStart(2, '0')}:${String(brDate.getSeconds()).padStart(2, '0')}`;
+    const brDateStr = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
 
     const logData = {
       action: 'saveLog',
       id: data.id,
-      date: formattedDateTime, 
+      date: brDateStr, 
       prefix: String(data.prefix || 'N/A').trim(),
       plate: String(data.plate || 'N/A').trim(),
       checklistType: data.checklistType,
@@ -300,7 +277,7 @@ const App: React.FC = () => {
       itemsDetail: JSON.stringify(itemsDetailArray),
       fullData: JSON.stringify(dataForMirror),
       generalObservation: data.generalObservation,
-      screenshot: screenshotBase64
+      screenshot: "" 
     };
 
     try {
@@ -308,7 +285,7 @@ const App: React.FC = () => {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(logData)
+        body: JSON.stringify(logData) as any
       });
     } catch (err) {
       console.error("Erro fatal ao sincronizar com o banco:", err);
@@ -316,65 +293,27 @@ const App: React.FC = () => {
   };
 
   const handleVisualizarPdf = async () => {
-    // VALIDAÇÃO DE ITENS OBRIGATÓRIOS
-    const pendingItemsCount = data.items.filter(item => item.status === 'PENDING').length;
-    if (pendingItemsCount > 0) {
-      alert(`BLOQUEIO DE SEGURANÇA: Existem ${pendingItemsCount} itens com status "PENDENTE". Por favor, avalie todos os itens da malha técnica antes de finalizar o relatório.`);
-      setShowExportMenu(false);
+    if (data.items.some(item => item.status === 'PENDING')) {
+      alert("BLOQUEIO: Existem itens pendentes.");
+      return;
+    }
+    if (!data.prefix.trim() || !data.plate.trim() || !data.km.trim() || !data.signatureName?.trim()) {
+      alert("DADOS INCOMPLETOS: Prefixo, Placa, KM e Nome do Conferente são obrigatórios.");
       return;
     }
 
-    // VALIDAÇÃO DE DADOS DA VIATURA
-    if (!data.prefix.trim() || !data.plate.trim() || !data.km.trim()) {
-      alert("DADOS INCOMPLETOS: Prefixo, Placa e Quilometragem (KM) são campos de preenchimento obrigatório para a identificação do veículo.");
-      setShowExportMenu(false);
-      return;
-    }
-
-    // VALIDAÇÃO DO CONFERENTE
-    if (!data.signatureName?.trim() || !data.signatureRank?.trim()) {
-      alert("IDENTIFICAÇÃO DO CONFERENTE: O Nome e a Graduação/RE do conferente devem ser informados para a autenticação do protocolo digital.");
-      setShowExportMenu(false);
-      return;
-    }
-
-    const now = new Date();
-    setPrintTimestamp(now.toLocaleString('pt-BR'));
-
+    setPrintTimestamp(new Date().toLocaleString('pt-BR'));
     setShowExportMenu(false);
     setIsSaving(true);
-    
-    // Grava espelho no banco (incluindo a "foto" do relatório)
     await saveLogToGoogleSheets();
-    
     setIsSaving(false);
     
-    // Chama impressão
     setTimeout(() => {
       window.print();
     }, 500);
   };
 
-  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const json = event.target?.result as string;
-        const importedData = JSON.parse(json) as InspectionData;
-        if (!importedData.items) throw new Error('Inválido');
-        setData(importedData);
-      } catch (err) {
-        alert('Erro ao processar arquivo JSON.');
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
-
-  const hasPhotos = data.photos.length > 0 || data.items.some(i => i.photos && i.photos.length > 0);
+  const hasVehicleImages = data.vehicleImages.some(img => img && img !== "");
 
   return (
     <div className="min-h-screen max-w-5xl mx-auto pt-24 pb-4 px-4 sm:px-6 print:pt-0 print:pb-0 print:px-0 transition-all">
@@ -383,19 +322,14 @@ const App: React.FC = () => {
           <Loader2 className="w-12 h-12 animate-spin text-blue-400" />
           <div className="text-center">
             <h3 className="font-black text-lg uppercase tracking-widest">Gravando Conferência</h3>
-            <p className="text-xs text-blue-200 font-bold opacity-70">Sincronizando conferente, itens e foto com o banco...</p>
+            <p className="text-xs text-blue-200 font-bold opacity-70">Sincronizando protocolo digital...</p>
           </div>
         </div>
       )}
 
       <div 
         ref={checklistRef}
-        style={{ 
-          transform: `scale(${printScale})`, 
-          transformOrigin: 'top center',
-          width: printScale !== 1 ? `${100 / printScale}%` : '100%',
-          maxWidth: '100%'
-        }}
+        style={{ transform: `scale(${printScale})`, transformOrigin: 'top center', width: printScale !== 1 ? `${100 / printScale}%` : '100%', maxWidth: '100%' }}
         className="bg-white shadow-2xl rounded-xl overflow-hidden print:shadow-none print:rounded-none border border-gray-100 transition-transform relative"
       >
         <Header 
@@ -412,188 +346,85 @@ const App: React.FC = () => {
               settings={settings} 
               onSave={handleSaveSettings} 
               onClose={() => setView('checklist')} 
-              initialTab={activeTabInSettings as any}
+              initialTab={activeTabInSettings} 
             />
           ) : (
             <>
               <section className="bg-gray-50/50 p-4 rounded-xl border border-gray-100 space-y-4 print:p-2 print:bg-transparent print:border-none">
-                <div className="flex items-center gap-2 mb-1 no-print">
-                  <CarFront className="w-4 h-4 text-blue-600" />
-                  <h2 className="text-xs font-bold text-gray-800 uppercase tracking-widest">Identificação do Veículo</h2>
-                </div>
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4 print:gap-2">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1"><Tag className="w-3 h-3" /> Prefixo</label>
-                    <input 
-                      type="text"
-                      placeholder="Ex: VTR-01"
-                      value={data.prefix}
-                      onChange={(e) => setData({...data, prefix: e.target.value})}
-                      className="w-full border rounded-lg p-2 bg-white focus:ring-1 focus:ring-blue-500 outline-none font-bold text-gray-800 text-xs shadow-sm uppercase"
-                    />
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Prefixo</label>
+                    <input type="text" value={data.prefix} onChange={(e) => setData({...data, prefix: e.target.value})} className="w-full border rounded-lg p-2 text-xs font-bold uppercase" />
                   </div>
-
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1"><Fingerprint className="w-3 h-3" /> Placa</label>
-                    <input 
-                      type="text"
-                      placeholder="ABC-1234"
-                      value={data.plate}
-                      onChange={(e) => setData({...data, plate: e.target.value.toUpperCase()})}
-                      className="w-full border rounded-lg p-2 bg-white focus:ring-1 focus:ring-blue-500 outline-none font-mono font-bold text-gray-800 text-xs shadow-sm"
-                    />
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Placa</label>
+                    <input type="text" value={data.plate} onChange={(e) => setData({...data, plate: e.target.value.toUpperCase()})} className="w-full border rounded-lg p-2 font-mono text-xs font-bold" />
                   </div>
-
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1"><CalendarDays className="w-3 h-3" /> Periodicidade</label>
-                    <div className="flex bg-white border rounded-lg p-1 shadow-sm h-9 no-print">
-                      <button 
-                        onClick={() => setData({...data, checklistType: 'Diário'})}
-                        className={`flex-1 text-[10px] font-black uppercase rounded-md transition-all ${data.checklistType === 'Diário' ? 'text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}
-                        style={{ backgroundColor: data.checklistType === 'Diário' ? themeColor : undefined }}
-                      >
-                        Diário
-                      </button>
-                      <button 
-                        onClick={() => setData({...data, checklistType: 'Semanal'})}
-                        className={`flex-1 text-[10px] font-black uppercase rounded-md transition-all ${data.checklistType === 'Semanal' ? 'text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}
-                        style={{ backgroundColor: data.checklistType === 'Semanal' ? themeColor : undefined }}
-                      >
-                        Semanal
-                      </button>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Ciclo</label>
+                    <div className="flex bg-white border rounded-lg p-1 h-9 no-print">
+                      <button onClick={() => setData({...data, checklistType: 'Diário'})} className={`flex-1 text-[10px] font-black uppercase rounded-md ${data.checklistType === 'Diário' ? 'text-white' : 'text-gray-400'}`} style={{ backgroundColor: data.checklistType === 'Diário' ? themeColor : undefined }}>Diário</button>
+                      <button onClick={() => setData({...data, checklistType: 'Semanal'})} className={`flex-1 text-[10px] font-black uppercase rounded-md ${data.checklistType === 'Semanal' ? 'text-white' : 'text-gray-400'}`} style={{ backgroundColor: data.checklistType === 'Semanal' ? themeColor : undefined }}>Semanal</button>
                     </div>
-                    <div className="hidden print:block border rounded-lg p-2 bg-white text-xs font-black uppercase text-center border-gray-200">
-                      {data.checklistType}
-                    </div>
+                    <div className="hidden print:block border rounded-lg p-2 bg-white text-xs font-black uppercase text-center">{data.checklistType}</div>
                   </div>
-
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-1">Odômetro (KM)</label>
-                    <input 
-                      type="number" 
-                      placeholder="0" 
-                      value={data.km} 
-                      onChange={(e) => setData({...data, km: e.target.value})} 
-                      className="w-full border rounded-lg p-2 bg-white outline-none text-xs font-bold text-blue-700 shadow-sm focus:ring-1 focus:ring-blue-500" 
-                    />
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Odômetro (KM)</label>
+                    <input type="number" value={data.km} onChange={(e) => setData({...data, km: e.target.value})} className="w-full border rounded-lg p-2 text-xs font-bold text-blue-700" />
                   </div>
                 </div>
               </section>
 
-              <section className="space-y-3">
-                <div className="flex items-center justify-between no-print">
-                   <div className="flex items-center gap-2">
-                      <ImageIcon className="w-4 h-4 text-blue-600" />
-                      <h2 className="text-xs font-bold text-gray-800 uppercase tracking-widest">Inspeção Visual (Avarias)</h2>
-                   </div>
-                   <button 
-                    onClick={() => setShowDamageMap(!showDamageMap)}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all border ${
-                      showDamageMap 
-                        ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100' 
-                        : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-                    }`}
-                   >
-                     {showDamageMap ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                     {showDamageMap ? 'Ocultar Mapa' : 'Exibir Mapa'}
-                   </button>
-                </div>
+              {showDamageMap && (
+                <section className={`bg-white rounded-xl p-3 border shadow-sm print:p-2 ${!hasVehicleImages ? 'print:hidden' : ''}`}>
+                  <DamageCanvas 
+                    images={data.vehicleImages || []} 
+                    ratios={data.vehicleImageRatios || INITIAL_VEHICLE_RATIOS} 
+                    damages={data.damages} 
+                    onAddDamage={(x, y, i) => setData(prev => ({ ...prev, damages: [...prev.damages, { id: crypto.randomUUID(), x, y, imageIndex: i, description: 'Dano' }] }))} 
+                    onRemoveDamage={(id) => setData(prev => ({ ...prev, damages: prev.damages.filter(d => d.id !== id) }))} 
+                    onUpdateImage={handleVehicleImageUpload} 
+                    onUpdateRatio={(i, r) => setData(prev => { const n = [...(prev.vehicleImageRatios || INITIAL_VEHICLE_RATIOS)]; n[i] = r; return { ...prev, vehicleImageRatios: n }; })} 
+                  />
+                </section>
+              )}
 
-                {showDamageMap && (
-                  <div className="bg-white rounded-xl p-3 border shadow-sm print:p-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <DamageCanvas 
-                        images={data.vehicleImages || []}
-                        ratios={data.vehicleImageRatios || INITIAL_VEHICLE_RATIOS}
-                        damages={data.damages}
-                        onAddDamage={addDamage}
-                        onRemoveDamage={removeDamage}
-                        onUpdateImage={handleVehicleImageUpload}
-                        onUpdateRatio={handleVehicleImageRatioUpdate}
-                    />
-                  </div>
-                )}
+              <section className="space-y-3">
+                <ChecklistTable items={data.items} onStatusChange={handleStatusChange} onObservationChange={handleObservationChange} onSaveToGeneralNotes={handleSaveToGeneralNotes} onAddPhoto={handleItemPhotoUpload} />
               </section>
 
-              <section className="space-y-3">
-                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <ClipboardCheck className="w-4 h-4 text-blue-600" />
-                    <h2 className="text-sm font-bold text-gray-800 uppercase">Itens de Inspeção</h2>
-                    <span 
-                      className="flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-widest text-white shadow-sm"
-                      style={{ backgroundColor: themeColor }}
-                    >
-                      <CalendarDays className="w-3 h-3" /> {data.checklistType}
-                    </span>
-                  </div>
-                  <div className="text-[9px] font-medium text-gray-500 uppercase tracking-widest border px-1.5 py-0.5 rounded bg-gray-50">
-                    <span className="text-green-600 font-bold">SN</span> (Normal) / <span className="text-red-500 font-bold">CN</span> (Alterado)
-                  </div>
-                </div>
-                <ChecklistTable 
-                  items={data.items} 
-                  onStatusChange={handleStatusChange} 
-                  onObservationChange={handleObservationChange} 
-                  onSaveToGeneralNotes={handleSaveToGeneralNotes}
-                  onAddPhoto={handleItemPhotoUpload}
+              {/* Seção de Observações Gerais - Restaurada para a tela principal */}
+              <section className="space-y-1 no-print">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block">Observações Gerais</label>
+                <textarea 
+                  rows={3} 
+                  value={data.generalObservation} 
+                  onChange={(e) => setData({...data, generalObservation: e.target.value})} 
+                  placeholder="Anotações adicionais do conferente..." 
+                  className="w-full border rounded-lg p-2 bg-gray-50 outline-none text-xs focus:ring-1 focus:ring-blue-500" 
                 />
               </section>
 
-              <section className="space-y-1">
-                <h3 className="font-bold text-gray-800 uppercase text-[10px] tracking-widest">Notas Adicionais</h3>
-                <textarea rows={3} value={data.generalObservation} onChange={(e) => setData({...data, generalObservation: e.target.value})} placeholder="Observações do inspetor..." className="w-full border rounded-lg p-2 bg-gray-50 outline-none text-xs" />
-              </section>
-
               <Footer 
-                signatureName={data.signatureName}
-                signatureRank={data.signatureRank}
-                date={data.date}
-                onSignatureNameChange={(val) => setData({ ...data, signatureName: val })}
-                onSignatureRankChange={(val) => setData({ ...data, signatureRank: val })}
+                signatureName={data.signatureName} 
+                signatureRank={data.signatureRank} 
+                date={data.date} 
+                onSignatureNameChange={(v) => setData({ ...data, signatureName: v })} 
+                onSignatureRankChange={(v) => setData({ ...data, signatureRank: v })} 
               />
-
-              <section className={`space-y-2 pt-2 border-t ${hasPhotos ? 'break-before-page' : ''}`}>
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-gray-800 uppercase text-[10px] tracking-widest flex items-center gap-2">
-                    <ImageIcon className="w-3 h-3" /> Anexo: Relatório Fotográfico
-                  </h3>
-                  <label className="cursor-pointer bg-blue-50 text-blue-600 px-2 py-1 rounded-lg text-[10px] font-semibold no-print hover:bg-blue-100 transition-colors">
-                    <Camera className="w-3 h-3 inline mr-1" /> Add Foto
-                    <input type="file" multiple accept="image/*" onChange={handlePhotoUpload} className="hidden" />
-                  </label>
-                </div>
-
-                {!hasPhotos && (
-                   <div className="text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200 text-gray-400 text-xs">
-                     Nenhuma foto anexada.
-                   </div>
-                )}
-                
-                <div className="grid grid-cols-2 md:grid-cols-3 print:grid-cols-3 gap-3">
-                  {data.items.filter(i => i.photos && i.photos.length > 0).map(item => (
-                    item.photos?.map((photo, photoIndex) => (
-                      <div key={`${item.id}-${photoIndex}`} className="relative aspect-square border rounded-lg overflow-hidden group bg-gray-100 shadow-sm break-inside-avoid">
-                        <img src={photo} className="w-full h-full object-contain" alt={item.label} />
-                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[9px] p-1 font-bold truncate">
-                          ITEM: {item.label}
-                        </div>
-                        <button onClick={() => removeItemPhoto(item.id, photoIndex)} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 no-print transition-opacity">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))
-                  ))}
-
-                  {data.photos.map((photo, i) => (
-                    <div key={`general-${i}`} className="relative aspect-square border rounded-lg overflow-hidden group bg-gray-100 shadow-sm break-inside-avoid">
-                      <img src={photo} className="w-full h-full object-contain" alt="Foto Geral" />
-                      <div className="absolute bottom-0 left-0 right-0 bg-blue-600/80 text-white text-[9px] p-1 font-bold uppercase text-center">
-                        Evidência Geral
-                      </div>
-                      <button onClick={() => setData(prev => ({ ...prev, photos: prev.photos.filter((_, idx) => idx !== i) }))} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 no-print transition-opacity">
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+              
+              <section className="space-y-2 pt-2 border-t">
+                 <div className="grid grid-cols-2 md:grid-cols-3 print:grid-cols-3 gap-3">
+                  {data.items.filter(i => i.photos?.length).map(item => item.photos?.map((p, idx) => (
+                    <div key={`${item.id}-${idx}`} className="relative aspect-square border rounded-lg overflow-hidden bg-gray-100 shadow-sm break-inside-avoid">
+                      <img src={p} className="w-full h-full object-contain" alt={item.label} />
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] p-1 font-bold truncate">ITEM: {item.label}</div>
+                    </div>
+                  )))}
+                  {data.photos.map((p, i) => (
+                    <div key={`g-${i}`} className="relative aspect-square border rounded-lg overflow-hidden bg-gray-100 shadow-sm break-inside-avoid">
+                      <img src={p} className="w-full h-full object-contain" alt="Geral" />
+                      <div className="absolute bottom-0 left-0 right-0 bg-blue-600/80 text-white text-[8px] p-1 font-bold uppercase text-center">Evidência Geral</div>
                     </div>
                   ))}
                 </div>
@@ -601,88 +432,61 @@ const App: React.FC = () => {
             </>
           )}
         </main>
-        
-        {/* METADADOS DE IMPRESSÃO - Visível apenas no PDF/Papel */}
         <div className="hidden print:flex absolute bottom-4 left-4 right-4 items-center justify-between text-[8px] font-black text-gray-300 uppercase tracking-widest border-t border-gray-100 pt-2">
-           <div className="flex items-center gap-2">
-              <Clock className="w-2.5 h-2.5" />
-              <span>Realização da Inspeção: {printTimestamp || new Date().toLocaleString('pt-BR')}</span>
-           </div>
-           <div className="flex items-center gap-4">
-              <span>Protocolo: {data.id}</span>
-              <span>Página 1</span>
-           </div>
+           <span>Realização da Inspeção: {printTimestamp || new Date().toLocaleString('pt-BR')}</span>
+           <span>Protocolo: {data.id}</span>
         </div>
       </div>
 
       <div className="fixed top-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/95 backdrop-blur-sm border border-gray-200 shadow-2xl px-5 py-3 rounded-2xl no-print z-[100]">
         {view === 'checklist' ? (
           <>
+            <button onClick={() => { setActiveTabInSettings('items'); setView('settings'); }} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-blue-600 transition-colors"><SettingsIcon className="w-5 h-5 text-blue-500" /><span className="text-xs font-bold hidden sm:inline">Ajustes</span></button>
+            <div className="w-px h-6 bg-gray-200 mx-1"></div>
+            
+            {/* Exportar Modelo */}
             <button 
-              onClick={exportData} 
-              className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-gray-700 transition-colors" 
-              title="Salvar modelo atual como JSON"
+              onClick={handleExportModel} 
+              className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-green-600 transition-colors"
+              title="Exportar Salvar modelo"
             >
-              <Download className="w-5 h-5 text-gray-500" />
+              <Save className="w-5 h-5 text-green-500" />
               <span className="text-xs font-bold hidden sm:inline">Salvar Modelo</span>
             </button>
-            
+
+            {/* Importar Modelo */}
             <label 
-              className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-gray-700 transition-colors cursor-pointer" 
-              title="Carregar modelo salvo"
+              className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-purple-600 transition-colors cursor-pointer"
+              title="Importar Modelo"
             >
-              <Upload className="w-5 h-5 text-gray-500" />
+              <Upload className="w-5 h-5 text-purple-500" />
               <span className="text-xs font-bold hidden sm:inline">Importar</span>
-              <input type="file" accept=".json" onChange={handleImportData} className="hidden" />
+              <input type="file" accept=".json" className="hidden" onChange={handleImportModel} />
             </label>
 
             <div className="w-px h-6 bg-gray-200 mx-1"></div>
             
+            {/* Botão de Ocultar/Mostrar Mapa */}
             <button 
-              onClick={() => { setActiveTabInSettings('about'); setView('settings'); }} 
-              className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-gray-700 transition-colors" 
-              title="Sobre o sistema"
+              onClick={() => setShowDamageMap(!showDamageMap)} 
+              className={`flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl transition-colors ${showDamageMap ? 'text-orange-600' : 'text-gray-400'}`}
+              title={showDamageMap ? "Ocultar Mapa de Avarias" : "Mostrar Mapa de Avarias"}
             >
-              <Info className="w-5 h-5 text-gray-500" />
-              <span className="text-xs font-bold hidden sm:inline">Sobre</span>
+              {showDamageMap ? <Map className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+              <span className="text-xs font-bold hidden sm:inline">{showDamageMap ? 'Ocultar Mapa' : 'Mostrar Mapa'}</span>
             </button>
-
+            
             <div className="w-px h-6 bg-gray-200 mx-1"></div>
 
-            <button 
-              onClick={() => { setActiveTabInSettings('style'); setView('settings'); }} 
-              className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-blue-600 transition-colors" 
-              title="Configurações de Itens e Estilo"
-            >
-              <SettingsIcon className="w-5 h-5 text-blue-500" />
-              <span className="text-xs font-bold hidden sm:inline">Ajustes</span>
-            </button>
-
-            <div className="w-px h-6 bg-gray-200 mx-1"></div>
-
-            <div className="relative">
-              {showExportMenu && (
-                <div className="absolute top-full mt-3 left-0 bg-white border border-gray-100 rounded-xl shadow-2xl p-2 w-56 animate-in slide-in-from-top-2 duration-200 overflow-hidden z-[110]">
-                  <button 
-                    onClick={handleVisualizarPdf} 
-                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-green-50 text-gray-700 hover:text-green-700 rounded-lg transition-colors text-xs font-bold"
-                  >
-                    <Printer className="w-4 h-4" /> Visualizar e Imprimir
-                  </button>
-                </div>
-              )}
-              <button 
-                onClick={() => setShowExportMenu(!showExportMenu)} 
-                className={`px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg flex items-center gap-2 transition-all active:scale-95 ${showExportMenu ? 'bg-gray-800 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200'}`}
-              >
-                {showExportMenu ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />} Finalizar
-              </button>
-            </div>
+            <button onClick={() => setShowExportMenu(!showExportMenu)} className={`px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg flex items-center gap-2 transition-all active:scale-95 ${showExportMenu ? 'bg-gray-800 text-white' : 'bg-blue-600 text-white'}`}>Finalizar</button>
+            {showExportMenu && (
+              <div className="absolute top-full mt-3 left-0 bg-white border rounded-xl shadow-2xl p-2 w-56 z-[110]">
+                <button onClick={handleVisualizarPdf} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-green-50 text-gray-700 rounded-lg text-xs font-bold"><Printer className="w-4 h-4" /> Visualizar e Imprimir</button>
+              </div>
+            )}
           </>
         ) : (
-          <button onClick={() => setView('checklist')} className="px-6 py-2 bg-gray-800 text-white rounded-xl text-sm font-bold flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4" /> Voltar ao Checklist
-          </button>
+          <button onClick={() => setView('checklist')} className="px-6 py-2 bg-gray-800 text-white rounded-xl text-sm font-bold flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Voltar ao Checklist</button>
         )}
       </div>
     </div>
