@@ -68,16 +68,22 @@ export const ChecklistTable: React.FC<ChecklistTableProps> = ({
 
               {/* Coluna 3: Input de Observação e Ações */}
               <div className="flex items-center gap-1 min-w-0 relative">
+                {/* Input para edição (Escondido na impressão por segurança de renderização) */}
                 <input
                   type="text"
                   placeholder=""
                   value={item.observation || ''}
                   onChange={(e) => onObservationChange(item.id, e.target.value)}
-                  className="w-full h-5 text-[10px] border-b border-transparent focus:border-blue-500 hover:border-gray-200 outline-none bg-transparent font-medium text-gray-600 placeholder:text-gray-300 transition-colors"
+                  className="w-full h-5 text-[10px] border-b border-transparent focus:border-blue-500 hover:border-gray-200 outline-none bg-transparent font-medium text-gray-600 placeholder:text-gray-300 transition-colors no-print"
                 />
                 
+                {/* Texto estático para impressão (Garante visibilidade no PDF) */}
+                <span className="hidden print:block text-[9px] text-gray-600 italic truncate w-full">
+                  {item.observation || ''}
+                </span>
+                
                 {/* Botão de Foto */}
-                <label className={`cursor-pointer p-0.5 transition-colors ${
+                <label className={`cursor-pointer p-0.5 transition-colors no-print ${
                   (item.photos && item.photos.length > 0) ? 'text-blue-600 hover:text-blue-800' : 'text-gray-300 hover:text-blue-500 opacity-0 group-hover:opacity-100'
                 }`} title="Adicionar foto de evidência">
                   <Camera className="w-3 h-3" />
@@ -88,7 +94,7 @@ export const ChecklistTable: React.FC<ChecklistTableProps> = ({
                 <button 
                   onClick={() => onSaveToGeneralNotes(item.id)}
                   title="Mover para notas gerais"
-                  className="text-gray-300 hover:text-blue-600 p-0.5 opacity-0 group-hover:opacity-100 transition-all"
+                  className="text-gray-300 hover:text-blue-600 p-0.5 opacity-0 group-hover:opacity-100 transition-all no-print"
                 >
                   <CheckSquare className="w-3 h-3" />
                 </button>
