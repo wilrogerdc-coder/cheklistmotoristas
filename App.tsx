@@ -393,7 +393,7 @@ const App: React.FC = () => {
                 <ChecklistTable items={data.items} onStatusChange={handleStatusChange} onObservationChange={handleObservationChange} onSaveToGeneralNotes={handleSaveToGeneralNotes} onAddPhoto={handleItemPhotoUpload} />
               </section>
 
-              {/* Seção de Observações Gerais - Restaurada para a tela principal */}
+              {/* Seção de Observações Gerais - Editável (no-print) */}
               <section className="space-y-1 no-print">
                 <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block">Observações Gerais</label>
                 <textarea 
@@ -404,6 +404,16 @@ const App: React.FC = () => {
                   className="w-full border rounded-lg p-2 bg-gray-50 outline-none text-xs focus:ring-1 focus:ring-blue-500" 
                 />
               </section>
+
+              {/* Seção de Observações Gerais - Somente Impressão (PDF) */}
+              {data.generalObservation && (
+                <section className="hidden print:block space-y-1 pt-2 border-t mt-2">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block">Observações Gerais</label>
+                  <div className="text-[10px] text-gray-700 whitespace-pre-wrap bg-gray-50 p-2 rounded-lg border italic leading-tight">
+                    {data.generalObservation}
+                  </div>
+                </section>
+              )}
 
               <Footer 
                 signatureName={data.signatureName} 
@@ -444,7 +454,6 @@ const App: React.FC = () => {
             <button onClick={() => { setActiveTabInSettings('items'); setView('settings'); }} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-blue-600 transition-colors"><SettingsIcon className="w-5 h-5 text-blue-500" /><span className="text-xs font-bold hidden sm:inline">Ajustes</span></button>
             <div className="w-px h-6 bg-gray-200 mx-1"></div>
             
-            {/* Exportar Modelo */}
             <button 
               onClick={handleExportModel} 
               className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-green-600 transition-colors"
@@ -454,7 +463,6 @@ const App: React.FC = () => {
               <span className="text-xs font-bold hidden sm:inline">Salvar Modelo</span>
             </button>
 
-            {/* Importar Modelo */}
             <label 
               className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-purple-600 transition-colors cursor-pointer"
               title="Importar Modelo"
@@ -466,7 +474,6 @@ const App: React.FC = () => {
 
             <div className="w-px h-6 bg-gray-200 mx-1"></div>
             
-            {/* Botão de Ocultar/Mostrar Mapa */}
             <button 
               onClick={() => setShowDamageMap(!showDamageMap)} 
               className={`flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl transition-colors ${showDamageMap ? 'text-orange-600' : 'text-gray-400'}`}
