@@ -34,7 +34,7 @@ const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbz4tRvSd
 
 const App: React.FC = () => {
   const [view, setView] = useState<'checklist' | 'settings'>('checklist');
-  const [activeTabInSettings, setActiveTabInSettings] = useState<'items' | 'images' | 'style' | 'about' | 'admin' | 'manual'>('items');
+  const [activeTabInSettings, setActiveTabInSettings] = useState<'items' | 'images' | 'style' | 'about' | 'admin' | 'manual' | 'reports'>('items');
   const [showDamageMap, setShowDamageMap] = useState(true);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -330,16 +330,18 @@ const App: React.FC = () => {
       <div 
         ref={checklistRef}
         style={{ transform: `scale(${printScale})`, transformOrigin: 'top center', width: printScale !== 1 ? `${100 / printScale}%` : '100%', maxWidth: '100%' }}
-        className="bg-white shadow-2xl rounded-xl overflow-hidden print:shadow-none print:rounded-none border border-gray-100 transition-transform relative"
+        className="bg-white shadow-2xl rounded-xl border border-gray-100 overflow-hidden print:shadow-none print:rounded-none transition-transform relative"
       >
-        <Header 
-          title={settings.headerTitle || 'Checklist de viatura'}
-          date={data.date} 
-          onDateChange={(newDate) => setData({ ...data, date: newDate })}
-          logoUrl1={settings.headerLogoUrl1}
-          logoUrl2={settings.headerLogoUrl2}
-          bgColor={settings.headerBgColor}
-        />
+        {view !== 'settings' && (
+          <Header 
+            title={settings.headerTitle || 'Checklist de viatura'}
+            date={data.date} 
+            onDateChange={(newDate) => setData({ ...data, date: newDate })}
+            logoUrl1={settings.headerLogoUrl1}
+            logoUrl2={settings.headerLogoUrl2}
+            bgColor={settings.headerBgColor}
+          />
+        )}
         <main className="p-4 print:p-2 space-y-4 print:space-y-3">
           {view === 'settings' ? (
             <Settings 
@@ -452,44 +454,49 @@ const App: React.FC = () => {
         {view === 'checklist' ? (
           <>
             <button onClick={() => { setActiveTabInSettings('items'); setView('settings'); }} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-blue-600 transition-colors"><SettingsIcon className="w-5 h-5 text-blue-500" /><span className="text-xs font-bold hidden sm:inline">Ajustes</span></button>
-            <div className="w-px h-6 bg-gray-200 mx-1"></div>
             
-            <button 
-              onClick={handleExportModel} 
-              className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-green-600 transition-colors"
-              title="Exportar Salvar modelo"
-            >
-              <Save className="w-5 h-5 text-green-500" />
-              <span className="text-xs font-bold hidden sm:inline">Salvar Modelo</span>
-            </button>
+            {view === 'checklist' && (
+              <>
+                <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                
+                <button 
+                  onClick={handleExportModel} 
+                  className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-green-600 transition-colors"
+                  title="Exportar Salvar modelo"
+                >
+                  <Save className="w-5 h-5 text-green-500" />
+                  <span className="text-xs font-bold hidden sm:inline">Salvar Modelo</span>
+                </button>
 
-            <label 
-              className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-purple-600 transition-colors cursor-pointer"
-              title="Importar Modelo"
-            >
-              <Upload className="w-5 h-5 text-purple-500" />
-              <span className="text-xs font-bold hidden sm:inline">Importar</span>
-              <input type="file" accept=".json" className="hidden" onChange={handleImportModel} />
-            </label>
+                <label 
+                  className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-purple-600 transition-colors cursor-pointer"
+                  title="Importar Modelo"
+                >
+                  <Upload className="w-5 h-5 text-purple-500" />
+                  <span className="text-xs font-bold hidden sm:inline">Importar</span>
+                  <input type="file" accept=".json" className="hidden" onChange={handleImportModel} />
+                </label>
 
-            <div className="w-px h-6 bg-gray-200 mx-1"></div>
-            
-            <button 
-              onClick={() => setShowDamageMap(!showDamageMap)} 
-              className={`flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl transition-colors ${showDamageMap ? 'text-orange-600' : 'text-gray-400'}`}
-              title={showDamageMap ? "Ocultar Mapa de Avarias" : "Mostrar Mapa de Avarias"}
-            >
-              {showDamageMap ? <Map className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
-              <span className="text-xs font-bold hidden sm:inline">{showDamageMap ? 'Ocultar Mapa' : 'Mostrar Mapa'}</span>
-            </button>
-            
-            <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                
+                <button 
+                  onClick={() => setShowDamageMap(!showDamageMap)} 
+                  className={`flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl transition-colors ${showDamageMap ? 'text-orange-600' : 'text-gray-400'}`}
+                  title={showDamageMap ? "Ocultar Mapa de Avarias" : "Mostrar Mapa de Avarias"}
+                >
+                  {showDamageMap ? <Map className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+                  <span className="text-xs font-bold hidden sm:inline">{showDamageMap ? 'Ocultar Mapa' : 'Mostrar Mapa'}</span>
+                </button>
+                
+                <div className="w-px h-6 bg-gray-200 mx-1"></div>
 
-            <button onClick={() => setShowExportMenu(!showExportMenu)} className={`px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg flex items-center gap-2 transition-all active:scale-95 ${showExportMenu ? 'bg-gray-800 text-white' : 'bg-blue-600 text-white'}`}>Finalizar</button>
-            {showExportMenu && (
-              <div className="absolute top-full mt-3 left-0 bg-white border rounded-xl shadow-2xl p-2 w-56 z-[110]">
-                <button onClick={handleVisualizarPdf} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-green-50 text-gray-700 rounded-lg text-xs font-bold"><Printer className="w-4 h-4" /> Visualizar e Imprimir</button>
-              </div>
+                <button onClick={() => setShowExportMenu(!showExportMenu)} className={`px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg flex items-center gap-2 transition-all active:scale-95 ${showExportMenu ? 'bg-gray-800 text-white' : 'bg-blue-600 text-white'}`}>Finalizar</button>
+                {showExportMenu && (
+                  <div className="absolute top-full mt-3 left-0 bg-white border rounded-xl shadow-2xl p-2 w-56 z-[110]">
+                    <button onClick={handleVisualizarPdf} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-green-50 text-gray-700 rounded-lg text-xs font-bold"><Printer className="w-4 h-4" /> Visualizar e Imprimir</button>
+                  </div>
+                )}
+              </>
             )}
           </>
         ) : (

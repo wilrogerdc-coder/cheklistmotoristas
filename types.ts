@@ -58,6 +58,9 @@ export interface LogEntry {
   checklistType: string;
   km: string;
   inspector: string;
+  Inspetor?: string;
+  inspetor?: string;
+  conferente?: string;
   itemsStatus: string; 
   itemsDetail?: string; // JSON string dos itens sem fotos
   fullData?: string;    // JSON string completo da inspeção (para reimpressão fiel)

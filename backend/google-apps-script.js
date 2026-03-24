@@ -37,7 +37,7 @@ function doGet(e) {
   try {
     var action = e.parameter.action;
     if (action === "getLogs") {
-      return fetchInspectionLogs();
+      return fetchInspectionLogs(e);
     }
     if (action === "getUsers") {
       return fetchUsers();
@@ -164,7 +164,7 @@ function saveInspectionLog(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function fetchInspectionLogs() {
+function fetchInspectionLogs(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName("Logs");
   if (!sheet) return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
@@ -176,13 +176,20 @@ function fetchInspectionLogs() {
   var headers = data[0];
   var rows = data.slice(1);
 
-  var logs = rows.map(function(row) {
+  // Filtros opcionais via URL
+  var filterPrefix = e && e.parameter.prefix ? e.parameter.prefix.toLowerCase().trim() : null;
+  var filterMonth = e && e.parameter.month ? e.parameter.month.trim() : null; // Formato YYYY-MM
+
+  var logs = [];
+  // Processar de trás para frente para pegar os mais recentes primeiro
+  for (var i = rows.length - 1; i >= 0; i--) {
+    var row = rows[i];
     var obj = {};
-    headers.forEach(function(header, i) {
+    
+    headers.forEach(function(header, j) {
       var h = header.toString().trim();
       var key = "";
       
-      // Mapeamento Estrito para evitar erros de case-sensitivity no Frontend
       if (h === "ID") key = "id";
       else if (h === "Data") key = "date";
       else if (h === "Viatura") key = "prefix";
@@ -197,11 +204,21 @@ function fetchInspectionLogs() {
       else if (h === "Foto da Conferência") key = "screenshot";
       else key = h.toLowerCase().replace(/\s+/g, '_');
       
-      obj[key] = row[i];
+      obj[key] = row[j];
     });
-    return obj;
-  });
 
-  return ContentService.createTextOutput(JSON.stringify(logs.reverse().slice(0, 1000)))
+    // Aplicar filtros no servidor
+    var matchesPrefix = !filterPrefix || (obj.prefix && obj.prefix.toString().toLowerCase().indexOf(filterPrefix) !== -1);
+    var matchesMonth = !filterMonth || (obj.date && obj.date.toString().substring(0, 7) === filterMonth);
+
+    if (matchesPrefix && matchesMonth) {
+      logs.push(obj);
+    }
+
+    // Limite de segurança para não estourar memória/tempo de execução
+    if (logs.length >= 1000) break;
+  }
+
+  return ContentService.createTextOutput(JSON.stringify(logs))
     .setMimeType(ContentService.MimeType.JSON);
 }

@@ -1,6 +1,6 @@
 {
-  "name": "Copy of Checklist Viatura produção atualização",
-  "description": "Sistema profissional de checklist de viaturas com inspeção visual, registro de danos, anexo de fotos e geração de PDF.",
+  "name": "Sistema de Controle de Viaturas",
+  "description": "Relatório de controle de viaturas com histórico analítico e status diário.",
   "requestFramePermissions": [
     "camera"
   ]

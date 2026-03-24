@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { ErrorBoundary } from './ErrorBoundary';
 import { AppSettings, ChecklistItem, ItemFrequency, AspectRatio, LogEntry } from '../types';
 import { 
   Trash2, 
@@ -48,6 +49,8 @@ import {
 import { Header } from './Header';
 import { Footer } from './Footer';
 
+import { Reports } from './Reports';
+
 // URL unificada com App.tsx para garantir que a auditoria consulte o mesmo banco de dados dos logs
 const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbz4tRvSdFPBJH5F8RBBg-30Br4e1-Ut4dxFSFejKvJtR8sgxgx5lZ25xHAvz_Z-4rK1/exec';
 
@@ -61,7 +64,7 @@ interface SettingsProps {
   settings: AppSettings;
   onSave: (newSettings: AppSettings) => void;
   onClose: () => void;
-  initialTab?: 'items' | 'images' | 'style' | 'about' | 'admin' | 'manual';
+  initialTab?: 'items' | 'images' | 'style' | 'about' | 'admin' | 'manual' | 'reports';
 }
 
 export const Settings: React.FC<SettingsProps> = ({ 
@@ -70,7 +73,7 @@ export const Settings: React.FC<SettingsProps> = ({
   onClose, 
   initialTab = 'items'
 }) => {
-  const [activeTab, setActiveTab] = useState<'items' | 'images' | 'style' | 'about' | 'admin' | 'manual'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'items' | 'images' | 'style' | 'about' | 'admin' | 'manual' | 'reports'>(initialTab);
   const [localSettings, setLocalSettings] = useState<AppSettings>(() => ({
     ...settings,
     googleSheetUrl: settings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL,
@@ -115,12 +118,16 @@ export const Settings: React.FC<SettingsProps> = ({
     }
   }, [activeTab, adminSubTab, isAdminAuthenticated, currentAuditUser]);
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (prefix?: string, month?: string) => {
     const targetUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
     if (!targetUrl) return;
     setIsLoadingLogs(true);
     try {
-      const response = await fetch(`${targetUrl}?action=getLogs`);
+      let url = `${targetUrl}?action=getLogs`;
+      if (prefix) url += `&prefix=${encodeURIComponent(prefix)}`;
+      if (month) url += `&month=${encodeURIComponent(month)}`;
+      
+      const response = await fetch(url);
       if (!response.ok) throw new Error('Servidor indisponível');
       const result = await response.json();
       if (Array.isArray(result)) {
@@ -292,7 +299,7 @@ export const Settings: React.FC<SettingsProps> = ({
     const vehiclesMap: Record<string, number> = {};
     
     logs.forEach(l => {
-      const insp = String(l.inspector || 'NÃO IDENTIFICADO').toUpperCase().trim();
+      const insp = String(l.inspector || l.Inspetor || l.inspetor || l.conferente || 'NÃO IDENTIFICADO').toUpperCase().trim();
       const vtr = String(l.prefix || 'N/A').toUpperCase().trim();
       inspectorsMap[insp] = (inspectorsMap[insp] || 0) + 1;
       vehiclesMap[vtr] = (vehiclesMap[vtr] || 0) + 1;
@@ -334,7 +341,8 @@ export const Settings: React.FC<SettingsProps> = ({
   // Função disparada ao trocar abas para garantir sincronização
   const handleTabChange = (tabId: typeof activeTab) => {
     setActiveTab(tabId);
-    if (tabId === 'admin') {
+    if (tabId === 'admin' || tabId === 'reports') {
+      fetchLogs();
       fetchUsers();
     }
   };
@@ -356,6 +364,7 @@ export const Settings: React.FC<SettingsProps> = ({
           { id: 'images', label: 'Plantas', icon: ImageIcon },
           { id: 'style', label: 'Estilo', icon: Palette },
           { id: 'admin', label: 'Auditoria', icon: Lock },
+          { id: 'reports', label: 'Relatórios', icon: FileText },
           { id: 'about', label: 'SOBRE', icon: Info }
         ].map(tab => (
           <button 
@@ -627,7 +636,7 @@ export const Settings: React.FC<SettingsProps> = ({
                             <tr key={log.id} className="hover:bg-blue-50/50 transition-colors">
                               <td className="p-3 font-mono text-gray-500">{formatDate(log.date)}</td>
                               <td className="p-3 font-black text-gray-800 uppercase">{log.prefix} <span className="text-[8px] font-normal opacity-50 block">{log.plate}</span></td>
-                              <td className="p-3 uppercase truncate max-w-[150px] font-bold text-gray-600">{log.inspector}</td>
+                              <td className="p-3 uppercase font-bold text-gray-600 break-words">{log.inspector || log.Inspetor || log.inspetor || log.conferente}</td>
                               <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${String(log.itemsStatus).includes('CN') ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{log.itemsStatus}</span></td>
                               <td className="p-3 text-right"><button onClick={() => setSelectedLog(log)} className="p-2 bg-gray-100 hover:bg-blue-600 hover:text-white rounded-lg transition-all shadow-sm"><FileSearch className="w-4 h-4" /></button></td>
                             </tr>
@@ -705,6 +714,17 @@ export const Settings: React.FC<SettingsProps> = ({
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'reports' && (
+          <ErrorBoundary>
+            <Reports 
+              logs={logs} 
+              settings={localSettings} 
+              onFetch={fetchLogs}
+              isLoading={isLoadingLogs}
+            />
+          </ErrorBoundary>
         )}
 
         {activeTab === 'about' && (
