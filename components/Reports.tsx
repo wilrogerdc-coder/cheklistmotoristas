@@ -629,12 +629,20 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
             <h3 className="text-xl font-black uppercase text-gray-900">Histórico de Registros (Auditoria)</h3>
             <p className="text-xs font-bold text-gray-500 uppercase">Filtro: {selectedPrefixes.size > 0 ? `${selectedPrefixes.size} Viaturas Selecionadas` : 'Geral'} | {monthFilter}</p>
           </div>
+          <div className="flex items-center gap-2 no-print">
+            <button 
+              onClick={() => window.print()}
+              className="bg-blue-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all active:scale-95"
+            >
+              <Printer className="w-4 h-4" /> Imprimir Lista
+            </button>
+          </div>
           <div className="text-right hidden print:block">
              <p className="text-[10px] font-black uppercase text-gray-400">Página <span className="page-number"></span></p>
           </div>
         </div>
 
-        <div className="flex-1 flex flex-col min-h-0 bg-gray-50 rounded-2xl border overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0 bg-gray-50 rounded-2xl border overflow-hidden print:bg-white print:border-0 print:overflow-visible">
           <div className="bg-white p-2 border-b flex items-center gap-2 no-print">
             <Search className="w-3.5 h-3.5 text-gray-400" />
             <input 
@@ -645,9 +653,9 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
               className="bg-transparent text-xs font-bold outline-none flex-1" 
             />
           </div>
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto print:overflow-visible">
             <table className="w-full text-[10px] text-left border-collapse">
-              <thead className="sticky top-0 bg-gray-100 z-10 text-[9px] font-black text-gray-400 uppercase tracking-widest border-b">
+              <thead className="sticky top-0 bg-gray-100 z-10 text-[9px] font-black text-gray-400 uppercase tracking-widest border-b print:static print:bg-white">
                 <tr>
                   <th className="p-3">Data/Hora</th>
                   <th className="p-3">Viatura</th>
@@ -664,7 +672,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                     String(l.plate).toLowerCase().includes(prefixSearch.toLowerCase())
                   )
                   .map((log, idx) => (
-                  <tr key={`${log.id}-${idx}`} className="hover:bg-blue-50/50 transition-colors">
+                  <tr key={`${log.id}-${idx}`} className="hover:bg-blue-50/50 transition-colors print:break-inside-avoid">
                     <td className="p-3 font-mono text-gray-500">{new Date(log.date).toLocaleString('pt-BR')}</td>
                     <td className="p-3 font-black text-gray-800 uppercase">
                       {log.prefix} 
