@@ -530,7 +530,6 @@ export const Settings: React.FC<SettingsProps> = ({
                 <div className="flex items-center justify-between border-b pb-2">
                    <div className="flex items-center gap-2 overflow-x-auto">
                      <button onClick={() => setAdminSubTab('dashboard')} className={`text-[10px] font-black uppercase px-4 py-2 rounded-lg transition-all ${adminSubTab === 'dashboard' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-400 hover:bg-gray-100'}`}>Dashboard Gerencial</button>
-                     <button onClick={() => setAdminSubTab('logs')} className={`text-[10px] font-black uppercase px-4 py-2 rounded-lg transition-all ${adminSubTab === 'logs' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-400 hover:bg-gray-100'}`}>Histórico de Registros</button>
                      {currentAuditUser === 'CAVALIERI' && (
                        <button onClick={() => setAdminSubTab('users')} className={`text-[10px] font-black uppercase px-4 py-2 rounded-lg transition-all ${adminSubTab === 'users' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-400 hover:bg-gray-100'}`}>Gestão de Acesso</button>
                      )}
@@ -616,33 +615,6 @@ export const Settings: React.FC<SettingsProps> = ({
                              ))}
                           </div>
                        </div>
-                    </div>
-                  </div>
-                )}
-
-                {adminSubTab === 'logs' && (
-                  <div className="flex-1 flex flex-col min-h-0 bg-gray-50 rounded-2xl border overflow-hidden">
-                    <div className="bg-white p-2 border-b flex items-center gap-2">
-                      <Search className="w-3.5 h-3.5 text-gray-400" />
-                      <input type="text" placeholder="Filtrar por Viatura ou Placa..." value={logFilter} onChange={e => setLogFilter(e.target.value)} className="bg-transparent text-xs font-bold outline-none flex-1" />
-                    </div>
-                    <div className="flex-1 overflow-auto">
-                      <table className="w-full text-[10px] text-left border-collapse">
-                        <thead className="sticky top-0 bg-gray-100 z-10 text-[9px] font-black text-gray-400 uppercase tracking-widest border-b">
-                          <tr><th className="p-3">Data/Hora</th><th className="p-3">Viatura</th><th className="p-3">Inspetor</th><th className="p-3">Status</th><th className="p-3 text-right">Relatório</th></tr>
-                        </thead>
-                        <tbody className="divide-y bg-white">
-                          {logs.filter(l => String(l.prefix).toLowerCase().includes(logFilter.toLowerCase()) || String(l.plate).toLowerCase().includes(logFilter.toLowerCase())).map(log => (
-                            <tr key={log.id} className="hover:bg-blue-50/50 transition-colors">
-                              <td className="p-3 font-mono text-gray-500">{formatDate(log.date)}</td>
-                              <td className="p-3 font-black text-gray-800 uppercase">{log.prefix} <span className="text-[8px] font-normal opacity-50 block">{log.plate}</span></td>
-                              <td className="p-3 uppercase font-bold text-gray-600 break-words">{log.inspector || log.Inspetor || log.inspetor || log.conferente}</td>
-                              <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${String(log.itemsStatus).includes('CN') ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{log.itemsStatus}</span></td>
-                              <td className="p-3 text-right"><button onClick={() => setSelectedLog(log)} className="p-2 bg-gray-100 hover:bg-blue-600 hover:text-white rounded-lg transition-all shadow-sm"><FileSearch className="w-4 h-4" /></button></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
                     </div>
                   </div>
                 )}

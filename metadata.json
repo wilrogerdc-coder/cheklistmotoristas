@@ -1,5 +1,5 @@
 {
-  "name": "Sistema de Controle de Viaturas",
+  "name": "Cheklist Motoristas Diario e Semanal - Atual",
   "description": "Relatório de controle de viaturas com histórico analítico e status diário.",
   "requestFramePermissions": [
     "camera"

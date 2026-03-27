@@ -14,7 +14,8 @@ import {
   Search,
   ChevronLeft,
   X,
-  Eye
+  Eye,
+  Clock
 } from 'lucide-react';
 
 interface ReportsProps {
@@ -24,7 +25,7 @@ interface ReportsProps {
   isLoading?: boolean;
 }
 
-type ReportType = 'novelties' | 'synthetic' | 'analytical' | 'full' | 'monthly_grouped' | null;
+type ReportType = 'novelties' | 'synthetic' | 'analytical' | 'full' | 'monthly_grouped' | 'history' | null;
 
 export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoading }) => {
   const [activeReport, setActiveReport] = useState<ReportType>(null);
@@ -651,6 +652,79 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
     );
   };
 
+  const renderHistoryReport = () => {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center border-b pb-4 print:pb-2">
+          <div>
+            <h3 className="text-xl font-black uppercase text-gray-900">Histórico de Registros (Auditoria)</h3>
+            <p className="text-xs font-bold text-gray-500 uppercase">Filtro: {selectedPrefixes.size > 0 ? `${selectedPrefixes.size} Viaturas Selecionadas` : 'Geral'} | {monthFilter}</p>
+          </div>
+          <div className="text-right hidden print:block">
+             <p className="text-[10px] font-black uppercase text-gray-400">Página <span className="page-number"></span></p>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col min-h-0 bg-gray-50 rounded-2xl border overflow-hidden">
+          <div className="bg-white p-2 border-b flex items-center gap-2 no-print">
+            <Search className="w-3.5 h-3.5 text-gray-400" />
+            <input 
+              type="text" 
+              placeholder="Filtrar por Viatura ou Placa..." 
+              value={prefixSearch} 
+              onChange={e => setPrefixSearch(e.target.value)} 
+              className="bg-transparent text-xs font-bold outline-none flex-1" 
+            />
+          </div>
+          <div className="flex-1 overflow-auto">
+            <table className="w-full text-[10px] text-left border-collapse">
+              <thead className="sticky top-0 bg-gray-100 z-10 text-[9px] font-black text-gray-400 uppercase tracking-widest border-b">
+                <tr>
+                  <th className="p-3">Data/Hora</th>
+                  <th className="p-3">Viatura</th>
+                  <th className="p-3">Inspetor</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3 text-right">Relatório</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y bg-white">
+                {filteredLogs
+                  .filter(l => 
+                    !prefixSearch || 
+                    String(l.prefix).toLowerCase().includes(prefixSearch.toLowerCase()) || 
+                    String(l.plate).toLowerCase().includes(prefixSearch.toLowerCase())
+                  )
+                  .map(log => (
+                  <tr key={log.id} className="hover:bg-blue-50/50 transition-colors">
+                    <td className="p-3 font-mono text-gray-500">{new Date(log.date).toLocaleString('pt-BR')}</td>
+                    <td className="p-3 font-black text-gray-800 uppercase">
+                      {log.prefix} 
+                      <span className="text-[8px] font-normal opacity-50 block">{log.plate}</span>
+                    </td>
+                    <td className="p-3 uppercase font-bold text-gray-600 break-words">{getInspector(log)}</td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${String(log.itemsStatus).includes('CN') ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                        {log.itemsStatus}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right">
+                      <button 
+                        onClick={() => setSelectedLog(log)} 
+                        className="p-2 bg-gray-100 hover:bg-blue-600 hover:text-white rounded-lg transition-all shadow-sm no-print"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (activeReport) {
     return (
       <div className="p-6 space-y-6 animate-in fade-in duration-300">
@@ -675,6 +749,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
           {activeReport === 'analytical' && renderAnalyticalReport()}
           {activeReport === 'full' && renderFullReport()}
           {activeReport === 'monthly_grouped' && renderMonthlyGroupedReport()}
+          {activeReport === 'history' && renderHistoryReport()}
           
           {/* Print Footer for Page Numbering */}
           <div className="hidden print:flex fixed bottom-0 left-0 right-0 h-8 items-center justify-between px-8 text-[8px] text-gray-400 border-t border-gray-100 bg-white">
@@ -806,6 +881,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
           { id: 'analytical', title: 'Relatório Analítico', desc: 'Dados detalhados de todos os registros.', icon: List, color: 'bg-purple-500' },
           { id: 'full', title: 'Relatório Completo', desc: 'Todos os dados com seleção de colunas.', icon: FileText, color: 'bg-orange-600' },
           { id: 'monthly_grouped', title: 'Relatório Mensal Agrupado', desc: 'Agrupado por viatura (ABS20109 = ABS-20109).', icon: BarChart, color: 'bg-blue-600' },
+          { id: 'history', title: 'Histórico de Registros', desc: 'Histórico completo vindo da Auditoria.', icon: Clock, color: 'bg-indigo-600' },
         ].map(report => (
           <button 
             key={report.id}
