@@ -96,7 +96,6 @@ export const Settings: React.FC<SettingsProps> = ({
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [isSavingUser, setIsSavingUser] = useState(false);
   const [logFilter, setLogFilter] = useState('');
-  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   
   // User Management Form
   const [newUser, setNewUser] = useState<AuditUser>({ username: '', password: '' });
@@ -261,29 +260,6 @@ export const Settings: React.FC<SettingsProps> = ({
     }
   };
 
-  const getFullData = (log: LogEntry): any => {
-    // Suporte para chaves com diferentes capitalizações (fullData ou fulldata)
-    const rawData = log.fullData || (log as any).fulldata;
-    
-    if (rawData && String(rawData).trim().startsWith('{')) {
-      try { 
-        return JSON.parse(String(rawData)); 
-      } catch (e) {
-        console.error("Erro parse fullData", e);
-      }
-    }
-    return null;
-  };
-
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return "";
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return dateStr;
-      return d.toLocaleString('pt-BR');
-    } catch (e) { return dateStr; }
-  };
-
   const stats = useMemo(() => {
     if (!Array.isArray(logs) || logs.length === 0) return { 
       total: 0, withIssues: 0, diario: 0, semanal: 0, conformityRate: 0,
@@ -335,8 +311,6 @@ export const Settings: React.FC<SettingsProps> = ({
       reader.readAsDataURL(file);
     }
   };
-
-  const handlePrintMirror = () => { if (printMirrorRef.current) window.print(); };
 
   // Função disparada ao trocar abas para garantir sincronização
   const handleTabChange = (tabId: typeof activeTab) => {
@@ -718,168 +692,6 @@ export const Settings: React.FC<SettingsProps> = ({
           </div>
         )}
       </div>
-
-      {selectedLog && (
-        <div className="fixed inset-0 z-[200] bg-gray-900/90 backdrop-blur-md flex items-center justify-center p-0 sm:p-4 no-print overflow-y-auto">
-           <div className="bg-white w-full max-w-5xl rounded-none sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col min-h-screen sm:min-h-0 sm:max-h-[96vh]">
-              <div className="bg-gray-900 p-4 flex items-center justify-between text-white shrink-0 no-print">
-                 <div className="flex items-center gap-3">
-                    <div><h3 className="font-black text-xs uppercase tracking-widest">Relatório de Auditoria</h3><p className="text-[8px] text-gray-400">Protocolo: {selectedLog.id}</p></div>
-                 </div>
-                 <div className="flex items-center gap-2">
-                    <button onClick={handlePrintMirror} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all"><Printer className="w-4 h-4" /> Re-Imprimir PDF</button>
-                    <button onClick={() => setSelectedLog(null)} className="p-2 hover:bg-red-500 rounded-full transition-all"><X className="w-6 h-6" /></button>
-                 </div>
-              </div>
-              
-              <div ref={printMirrorRef} className="flex-1 overflow-auto bg-white p-2 sm:p-4 print:p-0 print:overflow-visible">
-                 <div className="max-w-4xl mx-auto space-y-4 print:space-y-4">
-                    {(() => {
-                        const mirrorData = getFullData(selectedLog);
-                        if (!mirrorData) return <div className="p-10 text-center font-bold text-red-500 uppercase">Erro: Dados íntegros não encontrados no banco.</div>;
-                        
-                        const originalInspectionDateTime = formatDate(selectedLog.date);
-                        const inspectionImages = mirrorData.vehicleImages || [];
-                        const inspectionRatios = mirrorData.vehicleImageRatios || [];
-                        const hasInspectionImages = inspectionImages.some((img: string) => img && img !== "");
-
-                        return (
-                          <div className="flex flex-col gap-4">
-                            <Header 
-                                title={mirrorData.headerTitle || "Checklist de Viatura"}
-                                date={mirrorData.date || ""}
-                                onDateChange={() => {}}
-                                logoUrl1={mirrorData.headerLogoUrl1}
-                                logoUrl2={mirrorData.headerLogoUrl2}
-                                bgColor={mirrorData.headerBgColor}
-                            />
-
-                            <div className="px-4 py-2 space-y-6">
-                                <section className="bg-gray-50 p-4 rounded-2xl border grid grid-cols-4 gap-4 print:grid-cols-4 shadow-inner">
-                                    <div className="flex flex-col"><span className="text-[8px] font-black text-gray-400 uppercase">Viatura</span><span className="text-[11px] font-black uppercase text-gray-800">{selectedLog.prefix || mirrorData.prefix}</span></div>
-                                    <div className="flex flex-col"><span className="text-[8px] font-black text-gray-400 uppercase">Placa</span><span className="text-[11px] font-black uppercase text-gray-800">{selectedLog.plate || mirrorData.plate}</span></div>
-                                    <div className="flex flex-col"><span className="text-[8px] font-black text-gray-400 uppercase">Ciclo</span><span className="text-[11px] font-black uppercase text-blue-600">{selectedLog.checklistType || mirrorData.checklistType}</span></div>
-                                    <div className="flex flex-col"><span className="text-[8px] font-black text-gray-400 uppercase">Odômetro</span><span className="text-[11px] font-black uppercase text-gray-800">{selectedLog.km || mirrorData.km} KM</span></div>
-                                </section>
-
-                                {hasInspectionImages && (
-                                <section className="space-y-3">
-                                    <h4 className="text-[10px] font-black uppercase text-gray-400 border-b pb-1">Mapeamento Visual de Avarias</h4>
-                                    <div className="grid grid-cols-3 gap-3 print:grid-cols-3">
-                                        {inspectionImages.map((img: string, idx: number) => {
-                                            if (!img || img === "") return null;
-                                            const dmgs = (mirrorData.damages || []).filter((d: any) => d.imageIndex === idx);
-                                            const ratio = inspectionRatios[idx] || 'landscape';
-                                            return (
-                                                <div key={idx} className={`relative bg-gray-50 border rounded-xl overflow-hidden shadow-sm ${ratio === 'landscape' ? 'aspect-video' : 'aspect-[3/4]'}`}>
-                                                    <img src={img} className="w-full h-full object-contain" alt={`Vista ${idx}`} />
-                                                    {dmgs.map((d: any) => (
-                                                        <div 
-                                                            key={d.id} 
-                                                            className="absolute w-2.5 h-2.5 bg-red-600 rounded-full border-2 border-white shadow-sm -translate-x-1/2 -translate-y-1/2" 
-                                                            style={{ left: `${d.x}%`, top: `${d.y}%` }} 
-                                                        />
-                                                    ))}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </section>
-                                )}
-
-                                <section className="border rounded-2xl overflow-hidden shadow-sm">
-                                    <table className="w-full text-left text-[10px] border-collapse">
-                                      <thead className="bg-gray-100 uppercase font-black text-gray-500">
-                                        <tr><th className="p-3">Item de Controle</th><th className="p-3 text-center">Status</th><th className="p-3">Observações / Evidências</th></tr>
-                                      </thead>
-                                      <tbody className="divide-y">{ (mirrorData.items || []).map((it:any, i:number) => (
-                                        <tr key={i} className={it.status==='CN'?'bg-red-50/50':''}>
-                                            <td className="p-3 font-bold text-gray-700">{it.label}</td>
-                                            <td className="p-3 text-center">
-                                                <span className={`px-2 py-0.5 rounded text-white font-black text-[9px] uppercase ${it.status==='CN'?'bg-red-600' : it.status === 'OK' || it.status === 'SN' ? 'bg-green-600' : 'bg-gray-300'}`}>
-                                                    {it.status === 'OK' ? 'SN' : it.status}
-                                                </span>
-                                            </td>
-                                            <td className="p-3 italic text-gray-500">
-                                                {it.observation || '-'}
-                                                {it.photos?.length > 0 && <span className="ml-2 inline-flex items-center text-blue-600 font-bold text-[8px] uppercase tracking-tighter">[+ FOTOS]</span>}
-                                            </td>
-                                        </tr>
-                                    ))}</tbody></table>
-                                </section>
-
-                                {(selectedLog.generalObservation || mirrorData.generalObservation) && (
-                                    <section className="bg-gray-50 p-6 rounded-[2rem] border border-gray-100 shadow-inner">
-                                        <span className="text-[8px] font-black text-gray-400 uppercase block mb-1">Informações Gerais / Parecer do Inspetor</span>
-                                        <p className="text-[11px] italic leading-relaxed text-gray-700 font-medium">
-                                            "{selectedLog.generalObservation || mirrorData.generalObservation}"
-                                        </p>
-                                    </section>
-                                )}
-
-                                <Footer 
-                                  signatureName={mirrorData.signatureName || selectedLog.inspector} 
-                                  signatureRank={mirrorData.signatureRank || ""} 
-                                  date={mirrorData.date} 
-                                />
-                                
-                                <div className="text-center pt-2">
-                                  <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Data/Hora Original da Inspeção: </span>
-                                  <span className="text-[10px] font-black text-gray-700">{originalInspectionDateTime}</span>
-                                </div>
-
-                                <section className="space-y-4 pt-6 border-t break-before-page">
-                                    <h4 className="text-[10px] font-black uppercase text-gray-400 text-center tracking-widest">Anexo de Evidências Fotográficas</h4>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 print:grid-cols-2 gap-4">
-                                        {(mirrorData.items || []).filter((i: any) => i.photos && i.photos.length > 0).map((item: any) => 
-                                            item.photos.map((p: string, idx: number) => (
-                                                <div key={`${item.id}-${idx}`} className="flex flex-col gap-1 break-inside-avoid">
-                                                    <div className="relative aspect-square border-2 border-gray-100 rounded-2xl overflow-hidden bg-gray-50 shadow-sm">
-                                                        <img src={p} className="w-full h-full object-contain" alt={`Foto Item ${item.label}`} />
-                                                    </div>
-                                                    <div className="bg-gray-800 text-white text-[8px] p-2 rounded-lg font-black truncate uppercase tracking-tighter">
-                                                        Item: {item.label}
-                                                    </div>
-                                                </div>
-                                            ))
-                                        )}
-                                        {(mirrorData.photos || []).map((p: string, i: number) => (
-                                            <div key={`g-${i}`} className="flex flex-col gap-1 break-inside-avoid">
-                                                <div className="relative aspect-square border-2 border-gray-100 rounded-2xl overflow-hidden bg-gray-50 shadow-sm">
-                                                    <img src={p} className="w-full h-full object-contain" alt="Evidência Geral" />
-                                                </div>
-                                                <div className="bg-blue-600 text-white text-[8px] p-2 rounded-lg font-black uppercase text-center tracking-tighter">
-                                                    Evidência Geral {i + 1}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    {(!(mirrorData.items?.some((i: any) => i.photos?.length)) && !(mirrorData.photos?.length)) && (
-                                        <div className="p-10 border-2 border-dashed rounded-3xl text-center text-[10px] font-black text-gray-300 uppercase">
-                                            Nenhuma evidência fotográfica anexada a este protocolo.
-                                        </div>
-                                    )}
-                                </section>
-                            </div>
-                          </div>
-                        );
-                    })()}
-                 </div>
-
-                 <div className="hidden print:print-footer">
-                    <span className="page-number"></span>
-                    <span className="font-bold">Protocolo Auditoria: {selectedLog.id}</span>
-                    <span className="italic">Documento Gerado em: {new Date().toLocaleString('pt-BR')}</span>
-                 </div>
-
-                 <div className="flex print:hidden justify-between text-[8px] font-black text-gray-400 uppercase p-6 border-t mt-4 bg-gray-50">
-                    <span>ID Transação: {selectedLog.id}</span>
-                    <span>Reimpressão via Auditoria: {new Date().toLocaleString('pt-BR')}</span>
-                 </div>
-              </div>
-           </div>
-        </div>
-      )}
     </div>
   );
 };
