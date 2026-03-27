@@ -50,6 +50,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
   });
   const [statusFilter, setStatusFilter] = useState<'all' | 'ok' | 'cn'>('all');
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+  const [autoPrint, setAutoPrint] = useState(false);
   const printMirrorRef = useRef<HTMLDivElement>(null);
 
   const normalizePrefix = (p: string) => (p || '').replace(/[-\s]/g, '').toUpperCase();
@@ -76,6 +77,16 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
   };
 
   const handlePrintMirror = () => { if (printMirrorRef.current) window.print(); };
+
+  React.useEffect(() => {
+    if (selectedLog && autoPrint) {
+      const timer = setTimeout(() => {
+        handlePrintMirror();
+        setAutoPrint(false);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedLog, autoPrint]);
 
   const getInspector = (log: LogEntry) => {
     return (log.inspector || log.Inspetor || log.inspetor || log.conferente || 'NÃO IDENTIFICADO').trim();
@@ -177,7 +188,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
         </div>
 
         <div className="space-y-6">
-          {novelties.map(log => {
+          {novelties.map((log, idx) => {
             let cnItems: any[] = [];
             try {
               if (log.itemsDetail) {
@@ -187,7 +198,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
             } catch (e) {}
 
             return (
-              <div key={log.id} className="border-2 rounded-[2rem] p-6 space-y-4 bg-white print:break-inside-avoid shadow-sm hover:shadow-md transition-shadow">
+              <div key={`${log.id}-${idx}`} className="border-2 rounded-[2rem] p-6 space-y-4 bg-white print:break-inside-avoid shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex justify-between items-start border-b border-gray-100 pb-4">
                   <div className="flex items-center gap-3">
                     <div className="bg-red-600 text-white p-2 rounded-xl shadow-md">
@@ -652,8 +663,8 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                     String(l.prefix).toLowerCase().includes(prefixSearch.toLowerCase()) || 
                     String(l.plate).toLowerCase().includes(prefixSearch.toLowerCase())
                   )
-                  .map(log => (
-                  <tr key={log.id} className="hover:bg-blue-50/50 transition-colors">
+                  .map((log, idx) => (
+                  <tr key={`${log.id}-${idx}`} className="hover:bg-blue-50/50 transition-colors">
                     <td className="p-3 font-mono text-gray-500">{new Date(log.date).toLocaleString('pt-BR')}</td>
                     <td className="p-3 font-black text-gray-800 uppercase">
                       {log.prefix} 
@@ -666,12 +677,25 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                       </span>
                     </td>
                     <td className="p-3 text-right">
-                      <button 
-                        onClick={() => setSelectedLog(log)} 
-                        className="p-2 bg-gray-100 hover:bg-blue-600 hover:text-white rounded-lg transition-all shadow-sm no-print"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button 
+                          onClick={() => setSelectedLog(log)} 
+                          className="p-2 bg-gray-100 hover:bg-blue-600 hover:text-white rounded-lg transition-all shadow-sm no-print"
+                          title="Visualizar Detalhes"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setSelectedLog(log);
+                            setAutoPrint(true);
+                          }} 
+                          className="p-2 bg-gray-100 hover:bg-green-600 hover:text-white rounded-lg transition-all shadow-sm no-print"
+                          title="Gerar PDF"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -770,9 +794,9 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                                               return (
                                                   <div key={idx} className={`relative bg-gray-50 border rounded-xl overflow-hidden shadow-sm ${ratio === 'landscape' ? 'aspect-video' : 'aspect-[3/4]'}`}>
                                                       <img src={img} className="w-full h-full object-contain" alt={`Vista ${idx}`} />
-                                                      {dmgs.map((d: any) => (
+                                                      {dmgs.map((d: any, dIdx: number) => (
                                                           <div 
-                                                              key={d.id} 
+                                                              key={`dmg-${d.id || dIdx}-${dIdx}`} 
                                                               className="absolute w-2.5 h-2.5 bg-red-600 rounded-full border-2 border-white shadow-sm -translate-x-1/2 -translate-y-1/2" 
                                                               style={{ left: `${d.x}%`, top: `${d.y}%` }} 
                                                           />
@@ -790,7 +814,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                                           <tr><th className="p-3">Item de Controle</th><th className="p-3 text-center">Status</th><th className="p-3">Observações / Evidências</th></tr>
                                         </thead>
                                         <tbody className="divide-y">{ (mirrorData.items || []).map((it:any, i:number) => (
-                                          <tr key={i} className={it.status==='CN'?'bg-red-50/50':''}>
+                                          <tr key={`item-${it.id || i}-${i}`} className={it.status==='CN'?'bg-red-50/50':''}>
                                               <td className="p-3 font-bold text-gray-700">{it.label}</td>
                                               <td className="p-3 text-center">
                                                   <span className={`px-2 py-0.5 rounded text-white font-black text-[9px] uppercase ${it.status==='CN'?'bg-red-600' : it.status === 'OK' || it.status === 'SN' ? 'bg-green-600' : 'bg-gray-300'}`}>
