@@ -27,10 +27,11 @@ import {
   Map,
   EyeOff,
   Save,
-  Upload
+  Upload,
+  FileText
 } from 'lucide-react';
 
-const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbz4tRvSdFPBJH5F8RBBg-30Br4e1-Ut4dxFSFejKvJtR8sgxgx5lZ25xHAvz_Z-4rK1/exec';
+const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzx3Zk6Smwx4SJXw0ZRs_2xm-FcOhFrQ4zMR2kSCc6gUFAvRpmALEINYGaOJKP4Q8ldkg/exec';
 
 const App: React.FC = () => {
   const [view, setView] = useState<'checklist' | 'settings'>('checklist');
@@ -46,7 +47,10 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as AppSettings;
-        if (!parsed.googleSheetUrl) parsed.googleSheetUrl = FIXED_GOOGLE_SHEET_URL;
+        // Se a URL estiver vazia ou for a URL antiga, forçamos a atualização para a nova URL fixa
+        if (!parsed.googleSheetUrl || parsed.googleSheetUrl.includes('AKfycbz4tRvSdFPBJH5F8RBBg-30Br4e1-Ut4dxFSFejKvJtR8sgxgx5lZ25xHAvz_Z-4rK1')) {
+          parsed.googleSheetUrl = FIXED_GOOGLE_SHEET_URL;
+        }
         return parsed;
       } catch (e) {
         console.error("Failed to parse settings", e);
@@ -102,8 +106,8 @@ const App: React.FC = () => {
       img.src = base64Str;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 1200;
-        const MAX_HEIGHT = 1200;
+        const MAX_WIDTH = 600;
+        const MAX_HEIGHT = 600;
         let width = img.width;
         let height = img.height;
 
@@ -123,7 +127,7 @@ const App: React.FC = () => {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.6));
+        resolve(canvas.toDataURL('image/jpeg', 0.4));
       };
       img.onerror = () => resolve(base64Str);
     });
@@ -240,8 +244,13 @@ const App: React.FC = () => {
   };
 
   const saveLogToGoogleSheets = async () => {
-    const targetUrl = settings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
-    if (!targetUrl) return;
+    const rawUrl = settings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
+    const targetUrl = rawUrl?.trim();
+    
+    if (!targetUrl) {
+      console.warn("URL do Google Sheets não configurada.");
+      return;
+    }
     
     const itemsOk = data.items.filter(i => i.status === 'OK').length;
     const itemsCn = data.items.filter(i => i.status === 'CN').length;
@@ -280,15 +289,56 @@ const App: React.FC = () => {
       screenshot: "" 
     };
 
+    if (logData.fullData.length > 45000) {
+      console.warn("Payload grande detectado. Otimizando dados...");
+      const optimizedMirror = { ...dataForMirror, vehicleImages: [] };
+      logData.fullData = JSON.stringify(optimizedMirror);
+    }
+
+    console.log("Enviando dados para o Google Sheets...", { id: logData.id, size: logData.fullData.length });
+
     try {
-      await fetch(targetUrl, {
+      console.log("Payload para envio:", logData);
+      
+      // Tenta enviar com CORS para receber resposta
+      const response = await fetch(targetUrl, {
         method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(logData) as any
+        mode: 'cors', // Tenta CORS primeiro
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify(logData)
+      }).catch(err => {
+        console.warn("Erro CORS ou Rede, tentando modo no-cors...", err);
+        // Fallback para no-cors se falhar (não teremos resposta mas os dados chegam)
+        return fetch(targetUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8',
+          },
+          body: JSON.stringify(logData)
+        });
       });
+
+      if (response && response.type !== 'opaque') {
+        try {
+          const result = await response.json();
+          if (result.result === 'success') {
+            console.log("Log salvo com sucesso no Google Sheets (CORS OK)");
+          } else {
+            console.error("Erro retornado pelo script:", result.message);
+            alert(`ERRO NO SCRIPT: ${result.message}`);
+          }
+        } catch (jsonErr) {
+          console.error("Erro ao processar resposta JSON:", jsonErr);
+          alert("ERRO: O servidor não retornou um JSON válido. Verifique se o script está publicado como 'Qualquer pessoa'.");
+        }
+      } else {
+        console.log("Log enviado (modo no-cors ou resposta opaca). Verifique a planilha.");
+      }
     } catch (err) {
-      console.error("Erro fatal ao sincronizar com o banco:", err);
+      console.error("Erro fatal ao salvar no Google Sheets:", err);
     }
   };
 
@@ -429,13 +479,13 @@ const App: React.FC = () => {
                  <div className="grid grid-cols-2 md:grid-cols-3 print:grid-cols-3 gap-3">
                   {data.items.filter(i => i.photos?.length).map(item => item.photos?.map((p, idx) => (
                     <div key={`${item.id}-${idx}`} className="relative aspect-square border rounded-lg overflow-hidden bg-gray-100 shadow-sm break-inside-avoid">
-                      <img src={p} className="w-full h-full object-contain" alt={item.label} />
+                      <img src={p} className="w-full h-full object-contain" alt={item.label} referrerPolicy="no-referrer" />
                       <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] p-1 font-bold truncate">ITEM: {item.label}</div>
                     </div>
                   )))}
                   {data.photos.map((p, i) => (
                     <div key={`g-${i}`} className="relative aspect-square border rounded-lg overflow-hidden bg-gray-100 shadow-sm break-inside-avoid">
-                      <img src={p} className="w-full h-full object-contain" alt="Geral" />
+                      <img src={p} className="w-full h-full object-contain" alt="Geral" referrerPolicy="no-referrer" />
                       <div className="absolute bottom-0 left-0 right-0 bg-blue-600/80 text-white text-[8px] p-1 font-bold uppercase text-center">Evidência Geral</div>
                     </div>
                   ))}
@@ -455,6 +505,10 @@ const App: React.FC = () => {
           <>
             <button onClick={() => { setActiveTabInSettings('items'); setView('settings'); }} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-blue-600 transition-colors"><SettingsIcon className="w-5 h-5 text-blue-500" /><span className="text-xs font-bold hidden sm:inline">Ajustes</span></button>
             
+            <div className="w-px h-6 bg-gray-200 mx-1"></div>
+
+            <button onClick={() => { setActiveTabInSettings('reports'); setView('settings'); }} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-xl text-purple-600 transition-colors"><FileText className="w-5 h-5 text-purple-500" /><span className="text-xs font-bold hidden sm:inline">Relatórios</span></button>
+
             {view === 'checklist' && (
               <>
                 <div className="w-px h-6 bg-gray-200 mx-1"></div>

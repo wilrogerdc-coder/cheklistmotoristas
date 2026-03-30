@@ -1,6 +1,6 @@
 {
-  "name": "Cheklist Motoristas Diario e Semanal - Atual",
-  "description": "Relatório de controle de viaturas com histórico analítico e status diário.",
+  "name": "CheckViatura Pro - Auditoria e Gestão",
+  "description": "Sistema avançado de checklist de viaturas com sincronização em tempo real com Google Sheets, portal de auditoria e relatórios analíticos.",
   "requestFramePermissions": [
     "camera"
   ]

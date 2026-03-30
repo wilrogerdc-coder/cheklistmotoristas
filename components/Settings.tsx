@@ -52,7 +52,7 @@ import { Footer } from './Footer';
 import { Reports } from './Reports';
 
 // URL unificada com App.tsx para garantir que a auditoria consulte o mesmo banco de dados dos logs
-const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbz4tRvSdFPBJH5F8RBBg-30Br4e1-Ut4dxFSFejKvJtR8sgxgx5lZ25xHAvz_Z-4rK1/exec';
+const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzx3Zk6Smwx4SJXw0ZRs_2xm-FcOhFrQ4zMR2kSCc6gUFAvRpmALEINYGaOJKP4Q8ldkg/exec';
 
 interface AuditUser {
   username: string;
@@ -74,11 +74,17 @@ export const Settings: React.FC<SettingsProps> = ({
   initialTab = 'items'
 }) => {
   const [activeTab, setActiveTab] = useState<'items' | 'images' | 'style' | 'about' | 'admin' | 'manual' | 'reports'>(initialTab);
-  const [localSettings, setLocalSettings] = useState<AppSettings>(() => ({
-    ...settings,
-    googleSheetUrl: settings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL,
-    vehicleImageRatios: settings.vehicleImageRatios || ['landscape', 'landscape', 'landscape', 'landscape', 'landscape']
-  }));
+  const [localSettings, setLocalSettings] = useState<AppSettings>(() => {
+    const s = { ...settings };
+    // Se a URL estiver vazia ou for a URL antiga, forçamos a atualização para a nova URL fixa
+    if (!s.googleSheetUrl || s.googleSheetUrl.includes('AKfycbz4tRvSdFPBJH5F8RBBg-30Br4e1-Ut4dxFSFejKvJtR8sgxgx5lZ25xHAvz_Z-4rK1')) {
+      s.googleSheetUrl = FIXED_GOOGLE_SHEET_URL;
+    }
+    return {
+      ...s,
+      vehicleImageRatios: s.vehicleImageRatios || ['landscape', 'landscape', 'landscape', 'landscape', 'landscape']
+    };
+  });
   
   const [newItem, setNewItem] = useState({ label: '', frequency: 'Diário' as ItemFrequency });
   
@@ -106,54 +112,99 @@ export const Settings: React.FC<SettingsProps> = ({
     setActiveTab(initialTab);
   }, [initialTab]);
 
-  // Efeito para carregar usuários sempre que a sub-aba de usuários for aberta ou quando entrar na auditoria
-  useEffect(() => {
-    if (activeTab === 'admin') {
-      if (adminSubTab === 'users' && currentAuditUser === 'CAVALIERI') {
-        fetchUsers();
-      } else if (!isAdminAuthenticated) {
-        fetchUsers();
-      }
-    }
-  }, [activeTab, adminSubTab, isAdminAuthenticated, currentAuditUser]);
+  const hasAttemptedInitialFetch = useRef(false);
 
-  const fetchLogs = async (prefix?: string, month?: string) => {
-    const targetUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
-    if (!targetUrl) return;
+  // Efeito para carregar dados automaticamente ao entrar nas abas que dependem do banco
+  useEffect(() => {
+    if ((activeTab === 'admin' || activeTab === 'reports') && !hasAttemptedInitialFetch.current) {
+      console.log(`Aba ${activeTab} ativada pela primeira vez. Disparando sincronização inicial...`);
+      hasAttemptedInitialFetch.current = true;
+      fetchLogs();
+      fetchUsers();
+    }
+  }, [activeTab]);
+
+  const fetchLogs = async (prefix?: string, month?: string, retryCount = 0) => {
+    const rawUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
+    const targetUrl = rawUrl?.trim();
+    
+    if (!targetUrl) {
+      console.warn("URL do Google Sheets não configurada.");
+      return;
+    }
+    
+    if (isLoadingLogs && retryCount === 0) return;
     setIsLoadingLogs(true);
+    
+    const cleanPrefix = (prefix && prefix.trim() !== '') ? prefix.trim() : undefined;
+    const cleanMonth = (month && month !== 'all' && month.trim() !== '') ? month.trim() : undefined;
+
+    console.log(`[Tentativa ${retryCount + 1}] Buscando logs: ${targetUrl}`);
+    
     try {
-      let url = `${targetUrl}?action=getLogs`;
-      if (prefix) url += `&prefix=${encodeURIComponent(prefix)}`;
-      if (month) url += `&month=${encodeURIComponent(month)}`;
+      let url = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getLogs`;
+      if (cleanPrefix) url += `&prefix=${encodeURIComponent(cleanPrefix)}`;
+      if (cleanMonth) url += `&month=${encodeURIComponent(cleanMonth)}`;
+      url += `&_t=${Date.now()}`;
       
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Servidor indisponível');
+      const response = await fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+        cache: 'no-store'
+      });
+
+      if (!response.ok) throw new Error(`Erro HTTP: ${response.status}`);
+
       const result = await response.json();
       if (Array.isArray(result)) {
-        setLogs(result);
+        setLogs(result.filter(log => log && (log.id || log.ID)));
       }
     } catch (err) {
-      console.error("Erro fetch logs", err);
+      console.error(`Erro na tentativa ${retryCount + 1} ao buscar logs:`, err);
+      if (retryCount < 2) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return fetchLogs(prefix, month, retryCount + 1);
+      }
+      alert("ERRO AO BUSCAR LOGS: Não foi possível obter os dados.\n\nIsso geralmente ocorre se o Google Apps Script não estiver publicado como 'Qualquer pessoa' (Anyone) ou se a URL estiver incorreta.");
+      setLogs([]);
     } finally {
       setIsLoadingLogs(false);
     }
   };
 
-  const fetchUsers = async (): Promise<AuditUser[]> => {
-    const targetUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
+  const fetchUsers = async (retryCount = 0): Promise<AuditUser[]> => {
+    const rawUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
+    const targetUrl = rawUrl?.trim();
+    if (!targetUrl) return [];
+
+    console.log(`[Tentativa ${retryCount + 1}] Buscando usuários: ${targetUrl}`);
     try {
-      const response = await fetch(`${targetUrl}?action=getUsers`);
+      let url = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getUsers&_t=${Date.now()}`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+        cache: 'no-store'
+      });
+
+      if (!response.ok) throw new Error(`Erro HTTP: ${response.status}`);
+
       const result = await response.json();
       if (Array.isArray(result)) {
-        // Filtra para garantir que os dados são válidos
         const validUsers = result.filter(u => u && u.username);
         setUsersList(validUsers);
         return validUsers;
       }
-    } catch (e) {
-      console.error("Erro fetch users", e);
+      return [];
+    } catch (err) {
+      console.error(`Erro na tentativa ${retryCount + 1} ao buscar usuários:`, err);
+      if (retryCount < 2) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return fetchUsers(retryCount + 1);
+      }
+      alert("ERRO AO BUSCAR USUÁRIOS: Verifique as permissões do Google Apps Script (deve ser 'Qualquer pessoa').");
+      return [];
     }
-    return [];
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -214,15 +265,17 @@ export const Settings: React.FC<SettingsProps> = ({
     }
     
     setIsSavingUser(true);
-    const targetUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
+    const rawUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
+    const targetUrl = rawUrl?.trim();
     
     try {
-      // Envio via POST (no-cors)
       await fetch(targetUrl, {
         method: 'POST',
         mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'saveUser', ...newUser }) as any
+        headers: {
+          'Content-Type': 'text/plain'
+        },
+        body: JSON.stringify({ action: 'saveUser', ...newUser })
       });
       
       alert("Registro de usuário enviado com sucesso.");
@@ -244,13 +297,16 @@ export const Settings: React.FC<SettingsProps> = ({
     if (username.toUpperCase() === 'CAVALIERI') return;
     if (!confirm(`Confirma a EXCLUSÃO do usuário auditor: ${username}?`)) return;
     
-    const targetUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
+    const rawUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
+    const targetUrl = rawUrl?.trim();
     try {
       await fetch(targetUrl, {
         method: 'POST',
         mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'deleteUser', username }) as any
+        headers: {
+          'Content-Type': 'text/plain'
+        },
+        body: JSON.stringify({ action: 'deleteUser', username })
       });
       
       alert("Comando de exclusão enviado.");
@@ -312,13 +368,9 @@ export const Settings: React.FC<SettingsProps> = ({
     }
   };
 
-  // Função disparada ao trocar abas para garantir sincronização
+  // Função disparada ao trocar abas
   const handleTabChange = (tabId: typeof activeTab) => {
     setActiveTab(tabId);
-    if (tabId === 'admin' || tabId === 'reports') {
-      fetchLogs();
-      fetchUsers();
-    }
   };
 
   return (
@@ -510,6 +562,35 @@ export const Settings: React.FC<SettingsProps> = ({
                    </div>
                    <div className="flex items-center gap-3">
                      <span className="text-[9px] font-black text-gray-400 uppercase hidden sm:block">Logado como: <span className="text-blue-600">{currentAuditUser}</span></span>
+                     <button 
+                       onClick={async () => {
+                         const targetUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
+                         try {
+                           const res = await fetch(`${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=test&_t=${Date.now()}`, {
+                             method: 'GET',
+                             mode: 'cors',
+                             cache: 'no-store'
+                           });
+                           
+                           if (res.ok) {
+                             const data = await res.json();
+                             if (data.result === 'success') {
+                               alert(`CONEXÃO OK!\nServidor respondeu com sucesso.\nHorário do Servidor: ${data.timestamp}`);
+                             } else {
+                               alert(`ERRO NO SCRIPT: ${data.message}`);
+                             }
+                           } else {
+                             alert(`ERRO HTTP: ${res.status}\nO script pode não estar publicado corretamente.`);
+                           }
+                         } catch (e) {
+                           console.error("Test Connection Error:", e);
+                           alert("ERRO DE CONEXÃO: O script parece estar exigindo LOGIN ou está inacessível.\n\nCertifique-se de que em 'Quem tem acesso' esteja selecionado 'Qualquer pessoa' (Anyone).");
+                         }
+                       }} 
+                       className="text-[9px] font-black uppercase text-green-600 flex items-center gap-1 hover:underline"
+                     >
+                       <Activity className="w-3 h-3" /> Testar Conexão
+                     </button>
                      <button onClick={() => { fetchLogs(); fetchUsers(); }} className="text-[9px] font-black uppercase text-blue-600 flex items-center gap-1 hover:underline">
                        <RefreshCw className={`w-3 h-3 ${(isLoadingLogs || isSavingUser)?'animate-spin':''}`} /> Sincronizar Tudo
                      </button>

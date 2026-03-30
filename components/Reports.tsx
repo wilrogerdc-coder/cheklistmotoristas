@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { LogEntry, AppSettings } from '../types';
 import { Header } from './Header';
 import { Footer } from './Footer';
@@ -15,11 +15,15 @@ import {
   PieChart,
   List,
   Search,
+  RefreshCw,
   ChevronLeft,
   X,
   Eye,
-  Clock
+  Clock,
+  Loader2
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 interface ReportsProps {
   logs: LogEntry[];
@@ -32,9 +36,16 @@ type ReportType = 'novelties' | 'synthetic' | 'analytical' | 'full' | 'monthly_g
 
 export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoading }) => {
   const [activeReport, setActiveReport] = useState<ReportType>(null);
-  const [monthFilter, setMonthFilter] = useState<string>(new Date().toISOString().substring(0, 7)); // YYYY-MM
+  const [monthFilter, setMonthFilter] = useState<string>(''); // Vazio por padrão para mostrar tudo
   const [selectedPrefixes, setSelectedPrefixes] = useState<Set<string>>(new Set());
   const [prefixSearch, setPrefixSearch] = useState<string>('');
+
+  // Carregamento inicial automático ao abrir a aba de relatórios
+  React.useEffect(() => {
+    // Removido o carregamento automático redundante que causava loop infinito em caso de erro.
+    // O carregamento inicial agora é gerenciado pelo componente pai (Settings).
+    console.log(`Reports montado. logs.length=${logs.length}, isLoading=${isLoading}`);
+  }, []);
   
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
     date: true,
@@ -51,15 +62,18 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
   const [statusFilter, setStatusFilter] = useState<'all' | 'ok' | 'cn'>('all');
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   const [autoPrint, setAutoPrint] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const printMirrorRef = useRef<HTMLDivElement>(null);
 
   const normalizePrefix = (p: string) => (p || '').replace(/[-\s]/g, '').toUpperCase();
 
   const getFullData = (log: LogEntry): any => {
     const rawData = log.fullData || (log as any).fulldata;
-    if (rawData && String(rawData).trim().startsWith('{')) {
+    if (!rawData) return null;
+    if (typeof rawData === 'object') return rawData;
+    if (typeof rawData === 'string' && rawData.trim().startsWith('{')) {
       try { 
-        return JSON.parse(String(rawData)); 
+        return JSON.parse(rawData); 
       } catch (e) {
         console.error("Erro parse fullData", e);
       }
@@ -67,8 +81,37 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
     return null;
   };
 
+  const parseLogDateToMonth = (dateStr: string) => {
+    if (!dateStr) return "";
+    // Se for ISO (YYYY-MM-DD...)
+    if (dateStr.includes('-') && dateStr.indexOf('-') === 4) {
+      return dateStr.substring(0, 7);
+    }
+    // Se for pt-BR (DD/MM/YYYY...)
+    if (dateStr.includes('/')) {
+      const parts = dateStr.split('/');
+      if (parts.length >= 3) {
+        const month = parts[1].padStart(2, '0');
+        const yearPart = parts[2].split(' ')[0];
+        if (yearPart.length === 4) {
+          return `${yearPart}-${month}`;
+        }
+      }
+    }
+    // Fallback para Date object se possível
+    try {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        return d.toISOString().substring(0, 7);
+      }
+    } catch (e) {}
+    return "";
+  };
+
   const formatDate = (dateStr: string) => {
     if (!dateStr) return "";
+    // Se já parece formatado pt-BR (contém / e :)
+    if (dateStr.includes('/') && dateStr.includes(':')) return dateStr;
     try {
       const d = new Date(dateStr);
       if (isNaN(d.getTime())) return dateStr;
@@ -78,12 +121,41 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
 
   const handlePrintMirror = () => { if (printMirrorRef.current) window.print(); };
 
+  const generatePdf = async () => {
+    if (!printMirrorRef.current || !selectedLog) return;
+    
+    setIsGeneratingPdf(true);
+    try {
+      const element = printMirrorRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Relatorio_Auditoria_${selectedLog.prefix}_${selectedLog.date.replace(/\//g, '-')}.pdf`);
+    } catch (error) {
+      console.error("Erro ao gerar PDF:", error);
+      alert("Ocorreu um erro ao gerar o arquivo PDF. Tente usar a opção de imprimir.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   React.useEffect(() => {
     if (selectedLog && autoPrint) {
       const timer = setTimeout(() => {
         handlePrintMirror();
         setAutoPrint(false);
-      }, 500);
+      }, 800);
       return () => clearTimeout(timer);
     }
   }, [selectedLog, autoPrint]);
@@ -101,15 +173,31 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
     return Array.from(prefixes).sort();
   }, [logs]);
 
+  const uniqueMonths = useMemo(() => {
+    const months = new Set<string>();
+    logs.forEach(log => {
+      const month = parseLogDateToMonth(log.date);
+      if (month) months.add(month);
+    });
+    return Array.from(months).sort((a, b) => b.localeCompare(a)); // Mais recentes primeiro
+  }, [logs]);
+
+  const getMonthLabel = (monthStr: string) => {
+    if (!monthStr) return "Todos os Meses";
+    const [year, month] = monthStr.split('-');
+    const months = [
+      "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+      "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+    ];
+    return `${months[parseInt(month) - 1]}/${year}`;
+  };
+
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
-      const logDate = new Date(log.date).toISOString().substring(0, 7);
-      const matchesMonth = !monthFilter || logDate === monthFilter;
+      const logMonth = parseLogDateToMonth(log.date);
+      const matchesMonth = !monthFilter || logMonth === monthFilter;
       
       const normLogPrefix = normalizePrefix(log.prefix);
-      
-      // Se não houver nada selecionado, mostra tudo (ou nada? O usuário pediu para selecionar. Geralmente se nada selecionado = tudo ou nada. Vamos assumir que se o set estiver vazio, mostra tudo, a menos que o usuário explicitamente desmarque tudo)
-      // Mas o usuário quer selecionar. Então se o set tiver itens, filtra por eles.
       const matchesPrefix = selectedPrefixes.size === 0 || selectedPrefixes.has(normLogPrefix);
       
       return matchesMonth && matchesPrefix;
@@ -768,8 +856,13 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                           if (!mirrorData) return <div className="p-10 text-center font-bold text-red-500 uppercase">Erro: Dados íntegros não encontrados no banco.</div>;
                           
                           const originalInspectionDateTime = formatDate(selectedLog.date);
-                          const inspectionImages = mirrorData.vehicleImages || [];
-                          const inspectionRatios = mirrorData.vehicleImageRatios || [];
+                          
+                          // Fallback para imagens da viatura se não estiverem no log (otimização de tamanho)
+                          const inspectionImages = (mirrorData.vehicleImages && mirrorData.vehicleImages.length > 0) 
+                            ? mirrorData.vehicleImages 
+                            : (settings?.vehicleImages || []);
+                          
+                          const inspectionRatios = mirrorData.vehicleImageRatios || (settings?.vehicleImageRatios || []);
                           const hasInspectionImages = inspectionImages.some((img: string) => img && img !== "");
 
                           return (
@@ -801,7 +894,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                                               const ratio = inspectionRatios[idx] || 'landscape';
                                               return (
                                                   <div key={idx} className={`relative bg-gray-50 border rounded-xl overflow-hidden shadow-sm ${ratio === 'landscape' ? 'aspect-video' : 'aspect-[3/4]'}`}>
-                                                      <img src={img} className="w-full h-full object-contain" alt={`Vista ${idx}`} />
+                                                      <img src={img} className="w-full h-full object-contain" alt={`Vista ${idx}`} referrerPolicy="no-referrer" />
                                                       {dmgs.map((d: any, dIdx: number) => (
                                                           <div 
                                                               key={`dmg-${d.id || dIdx}-${dIdx}`} 
@@ -864,7 +957,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                                               item.photos.map((p: string, idx: number) => (
                                                   <div key={`${item.id}-${idx}`} className="flex flex-col gap-1 break-inside-avoid">
                                                       <div className="relative aspect-square border-2 border-gray-100 rounded-2xl overflow-hidden bg-gray-50 shadow-sm">
-                                                          <img src={p} className="w-full h-full object-contain" alt={`Foto Item ${item.label}`} />
+                                                          <img src={p} className="w-full h-full object-contain" alt={`Foto Item ${item.label}`} referrerPolicy="no-referrer" />
                                                       </div>
                                                       <div className="bg-gray-800 text-white text-[8px] p-2 rounded-lg font-black truncate uppercase tracking-tighter">
                                                           Item: {item.label}
@@ -875,7 +968,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                                           {(mirrorData.photos || []).map((p: string, i: number) => (
                                               <div key={`g-${i}`} className="flex flex-col gap-1 break-inside-avoid">
                                                   <div className="relative aspect-square border-2 border-gray-100 rounded-2xl overflow-hidden bg-gray-50 shadow-sm">
-                                                      <img src={p} className="w-full h-full object-contain" alt="Evidência Geral" />
+                                                      <img src={p} className="w-full h-full object-contain" alt="Evidência Geral" referrerPolicy="no-referrer" />
                                                   </div>
                                                   <div className="bg-blue-600 text-white text-[8px] p-2 rounded-lg font-black uppercase text-center tracking-tighter">
                                                       Evidência Geral {i + 1}
@@ -932,7 +1025,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
               </button>
               <button 
                 onClick={() => {
-                  setMonthFilter(new Date().toISOString().substring(0, 7));
+                  setMonthFilter('');
                   setSelectedPrefixes(new Set());
                   setPrefixSearch('');
                   onFetch('', '');
@@ -947,14 +1040,25 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-3 space-y-2">
+            <div className="lg:col-span-3 space-y-2 relative">
               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Mês de Referência</label>
-              <input 
-                type="month" 
-                value={monthFilter} 
-                onChange={e => setMonthFilter(e.target.value)}
-                className="w-full border-2 rounded-2xl p-3 text-sm font-bold outline-none focus:border-blue-500 bg-white shadow-sm"
-              />
+              <div className="relative">
+                <select 
+                  value={monthFilter} 
+                  onChange={e => setMonthFilter(e.target.value)}
+                  className="w-full border-2 rounded-2xl p-3 pr-10 text-sm font-bold outline-none focus:border-blue-500 bg-white shadow-sm appearance-none cursor-pointer"
+                >
+                  <option value="">Todos os Meses ({logs.length})</option>
+                  {uniqueMonths.map(month => (
+                    <option key={month} value={month}>
+                      {getMonthLabel(month)}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <Calendar className="w-4 h-4 text-gray-400" />
+                </div>
+              </div>
             </div>
 
             <div className="lg:col-span-9 space-y-3">
@@ -1026,31 +1130,64 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 no-print">
-        {[
-          { id: 'novelties', title: 'Relatório de Novidades', desc: 'Avarias e observações críticas.', icon: AlertCircle, color: 'bg-red-500' },
-          { id: 'synthetic', title: 'Relatório Sintético', desc: 'Resumo estatístico e conformidade.', icon: PieChart, color: 'bg-green-500' },
-          { id: 'analytical', title: 'Relatório Analítico', desc: 'Dados detalhados de todos os registros.', icon: List, color: 'bg-purple-500' },
-          { id: 'full', title: 'Relatório Completo', desc: 'Todos os dados com seleção de colunas.', icon: FileText, color: 'bg-orange-600' },
-          { id: 'monthly_grouped', title: 'Relatório Mensal Agrupado', desc: 'Agrupado por viatura (ABS20109 = ABS-20109).', icon: BarChart, color: 'bg-blue-600' },
-          { id: 'history', title: 'Histórico de Registros', desc: 'Histórico completo vindo da Auditoria.', icon: Clock, color: 'bg-indigo-600' },
-        ].map(report => (
-          <button 
-            key={report.id}
-            onClick={() => setActiveReport(report.id as ReportType)}
-            className="bg-white border p-6 rounded-3xl flex items-center gap-4 hover:border-blue-500 hover:shadow-md transition-all group text-left"
-          >
-            <div className={`${report.color} p-4 rounded-2xl text-white shadow-lg group-hover:scale-110 transition-transform`}>
-              <report.icon className="w-6 h-6" />
-            </div>
-            <div className="flex-1">
-              <h5 className="text-sm font-black uppercase text-gray-900">{report.title}</h5>
-              <p className="text-[10px] text-gray-400 font-medium">{report.desc}</p>
-            </div>
-            <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-blue-500 transition-colors" />
-          </button>
-        ))}
-      </div>
+      {filteredLogs.length === 0 ? (
+        <div className="bg-white rounded-[2.5rem] border-2 border-dashed border-gray-200 p-20 text-center no-print">
+          <AlertCircle className="w-16 h-16 text-gray-200 mx-auto mb-6" />
+          <h4 className="text-lg font-black uppercase text-gray-400 tracking-widest mb-2">Nenhum registro encontrado</h4>
+          <p className="text-xs font-bold text-gray-400 uppercase mb-8 max-w-md mx-auto">
+            {logs.length === 0 
+              ? "Não há dados carregados do banco de dados. Verifique a conexão com o Google Sheets ou clique no botão abaixo." 
+              : "Nenhum registro corresponde aos filtros selecionados (mês ou viatura)."}
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button 
+              onClick={() => onFetch('', 'all')}
+              disabled={isLoading}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-2xl text-[10px] font-black uppercase shadow-lg transition-all disabled:opacity-50 active:scale-95 flex items-center justify-center gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              {isLoading ? "Sincronizando..." : "Sincronizar Dados Agora"}
+            </button>
+            {(monthFilter !== 'all' || selectedPrefixes.size > 0) && (
+              <button 
+                onClick={() => {
+                  setMonthFilter('all');
+                  setSelectedPrefixes(new Set());
+                }}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-8 py-3 rounded-2xl text-[10px] font-black uppercase transition-all active:scale-95"
+              >
+                Limpar Filtros
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 no-print">
+          {[
+            { id: 'novelties', title: 'Relatório de Novidades', desc: 'Avarias e observações críticas.', icon: AlertCircle, color: 'bg-red-500' },
+            { id: 'synthetic', title: 'Relatório Sintético', desc: 'Resumo estatístico e conformidade.', icon: PieChart, color: 'bg-green-500' },
+            { id: 'analytical', title: 'Relatório Analítico', desc: 'Dados detalhados de todos os registros.', icon: List, color: 'bg-purple-500' },
+            { id: 'full', title: 'Relatório Completo', desc: 'Todos os dados com seleção de colunas.', icon: FileText, color: 'bg-orange-600' },
+            { id: 'monthly_grouped', title: 'Relatório Mensal Agrupado', desc: 'Agrupado por viatura (ABS20109 = ABS-20109).', icon: BarChart, color: 'bg-blue-600' },
+            { id: 'history', title: 'Histórico de Registros', desc: 'Histórico completo vindo da Auditoria.', icon: Clock, color: 'bg-indigo-600' },
+          ].map(report => (
+            <button 
+              key={report.id}
+              onClick={() => setActiveReport(report.id as ReportType)}
+              className="bg-white border p-6 rounded-3xl flex items-center gap-4 hover:border-blue-500 hover:shadow-md transition-all group text-left"
+            >
+              <div className={`${report.color} p-4 rounded-2xl text-white shadow-lg group-hover:scale-110 transition-transform`}>
+                <report.icon className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <h5 className="text-sm font-black uppercase text-gray-900">{report.title}</h5>
+                <p className="text-[10px] text-gray-400 font-medium">{report.desc}</p>
+              </div>
+              <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-blue-500 transition-colors" />
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="bg-gray-50 p-6 rounded-3xl border border-dashed text-center no-print">
         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Selecione um relatório acima para visualizar e imprimir</p>
@@ -1064,7 +1201,15 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                     <div><h3 className="font-black text-xs uppercase tracking-widest">Relatório de Auditoria</h3><p className="text-[8px] text-gray-400">Protocolo: {selectedLog.id}</p></div>
                  </div>
                  <div className="flex items-center gap-2">
-                    <button onClick={handlePrintMirror} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all"><Printer className="w-4 h-4" /> Re-Imprimir PDF</button>
+                    <button 
+                      onClick={generatePdf} 
+                      disabled={isGeneratingPdf}
+                      className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-lg hover:bg-green-700 transition-all disabled:opacity-50"
+                    >
+                      {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      Baixar PDF
+                    </button>
+                    <button onClick={handlePrintMirror} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all"><Printer className="w-4 h-4" /> Imprimir</button>
                     <button onClick={() => setSelectedLog(null)} className="p-2 hover:bg-red-500 rounded-full transition-all"><X className="w-6 h-6" /></button>
                  </div>
               </div>
@@ -1076,8 +1221,13 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                         if (!mirrorData) return <div className="p-10 text-center font-bold text-red-500 uppercase">Erro: Dados íntegros não encontrados no banco.</div>;
                         
                         const originalInspectionDateTime = formatDate(selectedLog.date);
-                        const inspectionImages = mirrorData.vehicleImages || [];
-                        const inspectionRatios = mirrorData.vehicleImageRatios || [];
+                        
+                        // Fallback para imagens da viatura se não estiverem no log (otimização de tamanho)
+                        const inspectionImages = (mirrorData.vehicleImages && mirrorData.vehicleImages.length > 0) 
+                          ? mirrorData.vehicleImages 
+                          : (settings?.vehicleImages || []);
+                        
+                        const inspectionRatios = mirrorData.vehicleImageRatios || (settings?.vehicleImageRatios || []);
                         const hasInspectionImages = inspectionImages.some((img: string) => img && img !== "");
 
                         return (
@@ -1109,7 +1259,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                                             const ratio = inspectionRatios[idx] || 'landscape';
                                             return (
                                                 <div key={idx} className={`relative bg-gray-50 border rounded-xl overflow-hidden shadow-sm ${ratio === 'landscape' ? 'aspect-video' : 'aspect-[3/4]'}`}>
-                                                    <img src={img} className="w-full h-full object-contain" alt={`Vista ${idx}`} />
+                                                    <img src={img} className="w-full h-full object-contain" alt={`Vista ${idx}`} referrerPolicy="no-referrer" />
                                                     {dmgs.map((d: any) => (
                                                         <div 
                                                             key={d.id} 
@@ -1172,7 +1322,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                                             item.photos.map((p: string, idx: number) => (
                                                 <div key={`${item.id}-${idx}`} className="flex flex-col gap-1 break-inside-avoid">
                                                     <div className="relative aspect-square border-2 border-gray-100 rounded-2xl overflow-hidden bg-gray-50 shadow-sm">
-                                                        <img src={p} className="w-full h-full object-contain" alt={`Foto Item ${item.label}`} />
+                                                        <img src={p} className="w-full h-full object-contain" alt={`Foto Item ${item.label}`} referrerPolicy="no-referrer" />
                                                     </div>
                                                     <div className="bg-gray-800 text-white text-[8px] p-2 rounded-lg font-black truncate uppercase tracking-tighter">
                                                         Item: {item.label}
@@ -1183,7 +1333,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                                         {(mirrorData.photos || []).map((p: string, i: number) => (
                                             <div key={`g-${i}`} className="flex flex-col gap-1 break-inside-avoid">
                                                 <div className="relative aspect-square border-2 border-gray-100 rounded-2xl overflow-hidden bg-gray-50 shadow-sm">
-                                                    <img src={p} className="w-full h-full object-contain" alt="Evidência Geral" />
+                                                    <img src={p} className="w-full h-full object-contain" alt="Evidência Geral" referrerPolicy="no-referrer" />
                                                 </div>
                                                 <div className="bg-blue-600 text-white text-[8px] p-2 rounded-lg font-black uppercase text-center tracking-tighter">
                                                     Evidência Geral {i + 1}

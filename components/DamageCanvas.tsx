@@ -76,7 +76,7 @@ export const DamageCanvas: React.FC<DamageCanvasProps> = ({
       >
         {img ? (
           <>
-            <img src={img} className="w-full h-full object-contain" alt={VIEW_LABELS[index]} />
+            <img src={img} className="w-full h-full object-contain" alt={VIEW_LABELS[index]} referrerPolicy="no-referrer" />
             {viewDamages.map(d => (
               <div 
                 key={d.id}
@@ -191,6 +191,7 @@ export const DamageCanvas: React.FC<DamageCanvasProps> = ({
                   src={fullImages[expandedIndex]} 
                   className="w-full h-full object-contain pointer-events-none select-none"
                   alt="Zoom"
+                  referrerPolicy="no-referrer"
                 />
                 {damages.filter(d => d.imageIndex === expandedIndex).map(damage => (
                   <button

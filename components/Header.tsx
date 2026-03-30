@@ -27,13 +27,13 @@ export const Header: React.FC<HeaderProps> = ({ title, date, onDateChange, logoU
           <div className="flex items-center gap-2">
             {logoUrl1 && (
               <div className="bg-white/10 p-1.5 rounded-lg flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 print:w-14 print:h-14">
-                <img src={logoUrl1} alt="Logo 1" className="max-h-full max-w-full object-contain" />
+                <img src={logoUrl1} alt="Logo 1" className="max-h-full max-w-full object-contain" referrerPolicy="no-referrer" />
               </div>
             )}
 
             {logoUrl2 && (
               <div className="bg-white/10 p-1.5 rounded-lg flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 print:w-14 print:h-14">
-                <img src={logoUrl2} alt="Logo 2" className="max-h-full max-w-full object-contain" />
+                <img src={logoUrl2} alt="Logo 2" className="max-h-full max-w-full object-contain" referrerPolicy="no-referrer" />
               </div>
             )}
           </div>
