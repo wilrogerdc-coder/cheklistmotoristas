@@ -41,7 +41,16 @@ function doPost(e) {
 
 function doGet(e) {
   try {
+    // Log para depuração
+    console.log("GET Parâmetros: " + JSON.stringify(e.parameter));
+    
     var action = e.parameter.action;
+    
+    // Fallback caso action esteja em parameters (como array)
+    if (!action && e.parameters && e.parameters.action) {
+      action = e.parameters.action[0];
+    }
+    
     if (action === "getLogs") {
       return fetchInspectionLogs(e);
     }
@@ -49,15 +58,28 @@ function doGet(e) {
       return fetchUsers();
     }
     if (action === "test") {
-      return ContentService.createTextOutput(JSON.stringify({ "result": "success", "message": "Conexão OK", "timestamp": new Date().toISOString() }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({ 
+        "result": "success", 
+        "message": "Conexão estabelecida com sucesso!", 
+        "timestamp": new Date().toISOString(),
+        "database": SpreadsheetApp.getActiveSpreadsheet().getName()
+      })).setMimeType(ContentService.MimeType.JSON);
     }
-    return ContentService.createTextOutput(JSON.stringify({ "result": "error", "message": "Ação GET inválida: " + action }))
-      .setMimeType(ContentService.MimeType.JSON);
+    
+    return ContentService.createTextOutput(JSON.stringify({ 
+      "result": "error", 
+      "message": "Ação GET inválida ou não informada: " + (action || "vazia"),
+      "debug": {
+        "receivedAction": action,
+        "allParameters": e.parameter
+      }
+    })).setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
     console.error("Erro no doGet: " + error.toString());
-    return ContentService.createTextOutput(JSON.stringify({ "result": "error", "message": error.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({ 
+      "result": "error", 
+      "message": "Erro interno no servidor: " + error.toString() 
+    })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 

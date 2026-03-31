@@ -63,7 +63,9 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   const [autoPrint, setAutoPrint] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [viewingJsonData, setViewingJsonData] = useState<{data: any, title: string, subtitle: string} | null>(null);
   const printMirrorRef = useRef<HTMLDivElement>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
 
   const normalizePrefix = (p: string) => (p || '').replace(/[-\s]/g, '').toUpperCase();
 
@@ -121,27 +123,136 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
 
   const handlePrintMirror = () => { if (printMirrorRef.current) window.print(); };
 
-  const generatePdf = async () => {
+  const generateReportPdf = async (openInNewTab: boolean = false) => {
+    if (!reportRef.current || !activeReport) return;
+    
+    setIsGeneratingPdf(true);
+    try {
+      const element = reportRef.current;
+      
+      // Capturar o conteúdo interno para evitar cortes do container com scroll
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        width: element.scrollWidth,
+        height: element.scrollHeight,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+        onclone: (clonedDoc) => {
+          const clonedElement = clonedDoc.querySelector('[data-pdf-content="report"]') as HTMLElement || clonedDoc.querySelector('.bg-white.p-8.rounded-\\[2\\.5rem\\]') as HTMLElement;
+          if (clonedElement) {
+            clonedElement.style.overflow = 'visible';
+            clonedElement.style.height = 'auto';
+            clonedElement.style.maxHeight = 'none';
+            clonedElement.style.borderRadius = '0';
+            clonedElement.style.border = 'none';
+            clonedElement.style.boxShadow = 'none';
+          }
+        }
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const imgProps = pdf.getImageProperties(imgData);
+      const contentHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      
+      let heightLeft = contentHeight;
+      let position = 0;
+
+      // Primeira página
+      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, contentHeight);
+      heightLeft -= pdfHeight;
+
+      // Páginas subsequentes
+      while (heightLeft > 0) {
+        position = heightLeft - contentHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, contentHeight);
+        heightLeft -= pdfHeight;
+      }
+      
+      const fileName = `Relatorio_${activeReport.toUpperCase()}_${new Date().toISOString().split('T')[0]}.pdf`;
+      
+      if (openInNewTab) {
+        const blobUrl = pdf.output('bloburl');
+        window.open(blobUrl, '_blank');
+      } else {
+        pdf.save(fileName);
+      }
+    } catch (error) {
+      console.error("Erro ao gerar PDF do relatório:", error);
+      alert("Ocorreu um erro ao gerar o arquivo PDF.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const generatePdf = async (openInNewTab: boolean = false) => {
     if (!printMirrorRef.current || !selectedLog) return;
     
     setIsGeneratingPdf(true);
     try {
       const element = printMirrorRef.current;
-      const canvas = await html2canvas(element, {
+      
+      // Capturar o conteúdo interno para evitar cortes do container com scroll
+      const contentElement = element.querySelector('[data-pdf-content="audit"]') as HTMLElement || element.querySelector('.max-w-4xl') as HTMLElement || element;
+
+      const canvas = await html2canvas(contentElement, {
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        width: contentElement.scrollWidth,
+        height: contentElement.scrollHeight,
+        windowWidth: contentElement.scrollWidth,
+        windowHeight: contentElement.scrollHeight,
+        onclone: (clonedDoc) => {
+          // No clone, garantimos que o elemento capturado esteja totalmente expandido
+          const clonedElement = clonedDoc.querySelector('[data-pdf-content="audit"]') as HTMLElement || clonedDoc.querySelector('.max-w-4xl') as HTMLElement;
+          if (clonedElement) {
+            clonedElement.style.overflow = 'visible';
+            clonedElement.style.height = 'auto';
+            clonedElement.style.maxHeight = 'none';
+          }
+        }
       });
       
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgProps = pdf.getImageProperties(imgData);
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      const pdfHeight = pdf.internal.pageSize.getHeight();
       
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`Relatorio_Auditoria_${selectedLog.prefix}_${selectedLog.date.replace(/\//g, '-')}.pdf`);
+      const imgProps = pdf.getImageProperties(imgData);
+      const contentHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      
+      let heightLeft = contentHeight;
+      let position = 0;
+
+      // Primeira página
+      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, contentHeight);
+      heightLeft -= pdfHeight;
+
+      // Páginas subsequentes
+      while (heightLeft > 0) {
+        position = heightLeft - contentHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, contentHeight);
+        heightLeft -= pdfHeight;
+      }
+      
+      const fileName = `Relatorio_Auditoria_${selectedLog.prefix}_${selectedLog.date.replace(/[/\\?%*:|"<>]/g, '-')}.pdf`;
+      
+      if (openInNewTab) {
+        const blobUrl = pdf.output('bloburl');
+        window.open(blobUrl, '_blank');
+      } else {
+        pdf.save(fileName);
+      }
     } catch (error) {
       console.error("Erro ao gerar PDF:", error);
       alert("Ocorreu um erro ao gerar o arquivo PDF. Tente usar a opção de imprimir.");
@@ -775,21 +886,22 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                     <td className="p-3 text-right">
                       <div className="flex justify-end gap-2">
                         <button 
-                          onClick={() => setSelectedLog(log)} 
+                          onClick={() => setViewingJsonData({
+                            data: getFullData(log),
+                            title: 'Dados Originais (JSON)',
+                            subtitle: `Protocolo: ${log.id} | Viatura: ${log.prefix}`
+                          })} 
                           className="p-2 bg-gray-100 hover:bg-blue-600 hover:text-white rounded-lg transition-all shadow-sm no-print"
-                          title="Visualizar Detalhes"
+                          title="Visualizar Dados Originais (JSON)"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
                         <button 
-                          onClick={() => {
-                            setSelectedLog(log);
-                            setAutoPrint(true);
-                          }} 
+                          onClick={() => setSelectedLog(log)} 
                           className="p-2 bg-gray-100 hover:bg-green-600 hover:text-white rounded-lg transition-all shadow-sm no-print"
-                          title="Gerar PDF"
+                          title="Visualizar Relatório Formatado"
                         >
-                          <Printer className="w-4 h-4" />
+                          <FileText className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -803,6 +915,60 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
     );
   };
 
+  const renderJsonView = (data: any, title: string, subtitle: string) => {
+    return (
+      <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+        <div className="flex items-center justify-between border-b pb-4 print:hidden">
+          <div>
+            <h3 className="text-xl font-black uppercase text-gray-900">{title}</h3>
+            <p className="text-xs font-bold text-gray-500 uppercase">{subtitle}</p>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => {
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+              }}
+              className="bg-green-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 shadow-lg hover:bg-green-700"
+            >
+              <Download className="w-4 h-4" /> Baixar JSON
+            </button>
+            <button 
+              onClick={() => window.print()}
+              className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700"
+            >
+              <Printer className="w-4 h-4" /> Imprimir
+            </button>
+          </div>
+        </div>
+        
+        <div className="bg-gray-900 p-8 rounded-[2.5rem] border-4 border-gray-800 shadow-2xl overflow-auto max-h-[70vh] print:max-h-none print:bg-white print:border-0 print:p-0">
+          <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap break-all leading-relaxed print:text-black print:text-[10px]">
+            {JSON.stringify(data, null, 2)}
+          </pre>
+        </div>
+      </div>
+    );
+  };
+
+  if (viewingJsonData) {
+    return (
+      <div className="p-6 space-y-6 animate-in fade-in duration-300">
+        <button 
+          onClick={() => setViewingJsonData(null)}
+          className="flex items-center gap-2 text-xs font-black uppercase text-gray-400 hover:text-blue-600 transition-colors no-print"
+        >
+          <ChevronLeft className="w-4 h-4" /> Voltar
+        </button>
+        {renderJsonView(viewingJsonData.data, viewingJsonData.title, viewingJsonData.subtitle)}
+      </div>
+    );
+  }
+
   if (activeReport) {
     return (
       <div className="p-6 space-y-6 animate-in fade-in duration-300">
@@ -813,15 +979,47 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
           >
             <ChevronLeft className="w-4 h-4" /> Voltar aos Relatórios
           </button>
-          <button 
-            onClick={handlePrint}
-            className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700"
-          >
-            <Printer className="w-4 h-4" /> Imprimir Relatório
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setViewingJsonData({
+                data: {
+                  reportType: activeReport,
+                  date: new Date().toISOString(),
+                  logs: filteredLogs.map(l => ({
+                    id: l.id,
+                    date: l.date,
+                    prefix: l.prefix,
+                    plate: l.plate,
+                    inspector: l.inspector,
+                    status: l.itemsStatus,
+                    fullData: getFullData(l)
+                  }))
+                },
+                title: `Dados do Relatório ${activeReport.toUpperCase()}`,
+                subtitle: `Total de Registros: ${filteredLogs.length}`
+              })}
+              disabled={isGeneratingPdf}
+              className="bg-orange-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 shadow-lg hover:bg-orange-700 disabled:opacity-50"
+            >
+              <Eye className="w-4 h-4" /> Visualizar JSON
+            </button>
+            <button 
+              onClick={() => generateReportPdf(false)}
+              disabled={isGeneratingPdf}
+              className="bg-green-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 shadow-lg hover:bg-green-700 disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" /> Baixar PDF
+            </button>
+            <button 
+              onClick={handlePrint}
+              className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700"
+            >
+              <Printer className="w-4 h-4" /> Imprimir
+            </button>
+          </div>
         </div>
 
-        <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm print:p-0 print:border-0 print:shadow-none relative">
+        <div ref={reportRef} data-pdf-content="report" className="bg-white p-8 rounded-[2.5rem] border shadow-sm print:p-0 print:border-0 print:shadow-none relative">
           {activeReport === 'novelties' && renderNoveltiesReport()}
           {activeReport === 'synthetic' && renderSyntheticReport()}
           {activeReport === 'analytical' && renderAnalyticalReport()}
@@ -837,20 +1035,61 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
         </div>
 
         {selectedLog && (
-          <div className="fixed inset-0 z-[250] bg-gray-900/90 backdrop-blur-md flex items-center justify-center p-0 sm:p-4 no-print overflow-y-auto">
-             <div className="bg-white w-full max-w-5xl rounded-none sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col min-h-screen sm:min-h-0 sm:max-h-[96vh]">
-                <div className="bg-gray-900 p-4 flex items-center justify-between text-white shrink-0 no-print">
-                   <div className="flex items-center gap-3">
-                      <div><h3 className="font-black text-xs uppercase tracking-widest">Relatório de Auditoria</h3><p className="text-[8px] text-gray-400">Protocolo: {selectedLog.id}</p></div>
+          <div className="fixed inset-0 z-[250] bg-gray-900/90 backdrop-blur-md flex items-center justify-center p-0 no-print overflow-y-auto">
+             <div className="bg-white w-full h-full sm:h-full sm:max-w-full rounded-none shadow-2xl overflow-hidden flex flex-col">
+                <div className="bg-gray-900 p-4 flex flex-col sm:flex-row items-center justify-between text-white shrink-0 no-print gap-4">
+                   <div className="flex items-center gap-3 w-full sm:w-auto">
+                      <div className="bg-blue-600 p-2 rounded-xl">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-black text-xs uppercase tracking-widest leading-none">Relatório de Auditoria</h3>
+                        <p className="text-[8px] text-gray-400 mt-1">Protocolo: {selectedLog.id}</p>
+                      </div>
                    </div>
-                   <div className="flex items-center gap-2">
-                      <button onClick={handlePrintMirror} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all"><Printer className="w-4 h-4" /> Re-Imprimir PDF</button>
-                      <button onClick={() => setSelectedLog(null)} className="p-2 hover:bg-red-500 rounded-full transition-all"><X className="w-6 h-6" /></button>
+                   <div className="flex items-center gap-2 w-full sm:w-auto justify-center sm:justify-end">
+                      <button 
+                        onClick={() => {
+                          const log = selectedLog;
+                          setSelectedLog(null);
+                          setViewingJsonData({
+                            data: getFullData(log),
+                            title: 'Dados Originais (JSON)',
+                            subtitle: `Protocolo: ${log.id} | Viatura: ${log.prefix}`
+                          });
+                        }} 
+                        disabled={isGeneratingPdf}
+                        className="flex-1 sm:flex-none bg-orange-600 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 shadow-lg hover:bg-orange-700 transition-all disabled:opacity-50"
+                      >
+                        <Eye className="w-4 h-4" />
+                        Visualizar JSON
+                      </button>
+                      <button 
+                        onClick={() => generatePdf(false)} 
+                        disabled={isGeneratingPdf}
+                        className="flex-1 sm:flex-none bg-green-600 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 shadow-lg hover:bg-green-700 transition-all disabled:opacity-50"
+                      >
+                        {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        Baixar PDF
+                      </button>
+                      <button 
+                        onClick={handlePrintMirror} 
+                        className="flex-1 sm:flex-none bg-blue-600 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 shadow-lg hover:bg-blue-700 transition-all"
+                      >
+                        <Printer className="w-4 h-4" /> 
+                        <span className="hidden xs:inline">Imprimir</span>
+                      </button>
+                      <button 
+                        onClick={() => setSelectedLog(null)} 
+                        className="p-2 hover:bg-red-500 rounded-full transition-all"
+                      >
+                        <X className="w-6 h-6" />
+                      </button>
                    </div>
                 </div>
                 
-                <div ref={printMirrorRef} className="flex-1 overflow-auto bg-white p-2 sm:p-4 print:p-0 print:overflow-visible">
-                   <div className="max-w-4xl mx-auto space-y-4 print:space-y-4">
+                <div ref={printMirrorRef} className="flex-1 overflow-auto bg-white p-4 sm:p-8 print:p-0 print:overflow-visible">
+                   <div data-pdf-content="audit" className="max-w-4xl mx-auto space-y-4 print:space-y-4">
                       {(() => {
                           const mirrorData = getFullData(selectedLog);
                           if (!mirrorData) return <div className="p-10 text-center font-bold text-red-500 uppercase">Erro: Dados íntegros não encontrados no banco.</div>;
@@ -1194,28 +1433,53 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
       </div>
 
       {selectedLog && (
-        <div className="fixed inset-0 z-[250] bg-gray-900/90 backdrop-blur-md flex items-center justify-center p-0 sm:p-4 no-print overflow-y-auto">
-           <div className="bg-white w-full max-w-5xl rounded-none sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col min-h-screen sm:min-h-0 sm:max-h-[96vh]">
-              <div className="bg-gray-900 p-4 flex items-center justify-between text-white shrink-0 no-print">
-                 <div className="flex items-center gap-3">
-                    <div><h3 className="font-black text-xs uppercase tracking-widest">Relatório de Auditoria</h3><p className="text-[8px] text-gray-400">Protocolo: {selectedLog.id}</p></div>
+        <div className="fixed inset-0 z-[250] bg-gray-900/90 backdrop-blur-md flex items-center justify-center p-0 no-print overflow-y-auto">
+           <div className="bg-white w-full h-full sm:h-full sm:max-w-full rounded-none shadow-2xl overflow-hidden flex flex-col">
+              <div className="bg-gray-900 p-4 flex flex-col sm:flex-row items-center justify-between text-white shrink-0 no-print gap-4">
+                 <div className="flex items-center gap-3 w-full sm:w-auto">
+                    <div className="bg-blue-600 p-2 rounded-xl">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-xs uppercase tracking-widest leading-none">Relatório de Auditoria</h3>
+                      <p className="text-[8px] text-gray-400 mt-1">Protocolo: {selectedLog.id}</p>
+                    </div>
                  </div>
-                 <div className="flex items-center gap-2">
+                 <div className="flex items-center gap-2 w-full sm:w-auto justify-center sm:justify-end">
                     <button 
-                      onClick={generatePdf} 
+                      onClick={() => generatePdf(true)} 
                       disabled={isGeneratingPdf}
-                      className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-lg hover:bg-green-700 transition-all disabled:opacity-50"
+                      className="flex-1 sm:flex-none bg-orange-600 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 shadow-lg hover:bg-orange-700 transition-all disabled:opacity-50"
+                    >
+                      {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                      <span className="hidden xs:inline">Visualizar</span> PDF
+                    </button>
+                    <button 
+                      onClick={() => generatePdf(false)} 
+                      disabled={isGeneratingPdf}
+                      className="flex-1 sm:flex-none bg-green-600 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 shadow-lg hover:bg-green-700 transition-all disabled:opacity-50"
                     >
                       {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                      Baixar PDF
+                      <span className="hidden xs:inline">Baixar</span> PDF
                     </button>
-                    <button onClick={handlePrintMirror} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all"><Printer className="w-4 h-4" /> Imprimir</button>
-                    <button onClick={() => setSelectedLog(null)} className="p-2 hover:bg-red-500 rounded-full transition-all"><X className="w-6 h-6" /></button>
+                    <button 
+                      onClick={handlePrintMirror} 
+                      className="flex-1 sm:flex-none bg-blue-600 text-white px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2 shadow-lg hover:bg-blue-700 transition-all"
+                    >
+                      <Printer className="w-4 h-4" /> 
+                      <span className="hidden xs:inline">Imprimir</span>
+                    </button>
+                    <button 
+                      onClick={() => setSelectedLog(null)} 
+                      className="p-2 hover:bg-red-500 rounded-full transition-all"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
                  </div>
               </div>
               
-              <div ref={printMirrorRef} className="flex-1 overflow-auto bg-white p-2 sm:p-4 print:p-0 print:overflow-visible">
-                 <div className="max-w-4xl mx-auto space-y-4 print:space-y-4">
+              <div ref={printMirrorRef} className="flex-1 overflow-auto bg-white p-4 sm:p-8 print:p-0 print:overflow-visible">
+                 <div data-pdf-content="audit" className="max-w-4xl mx-auto space-y-4 print:space-y-4">
                     {(() => {
                         const mirrorData = getFullData(selectedLog);
                         if (!mirrorData) return <div className="p-10 text-center font-bold text-red-500 uppercase">Erro: Dados íntegros não encontrados no banco.</div>;

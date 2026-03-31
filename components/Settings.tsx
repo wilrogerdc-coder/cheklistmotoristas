@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
 import { AppSettings, ChecklistItem, ItemFrequency, AspectRatio, LogEntry } from '../types';
+import { FIXED_GOOGLE_SHEET_URL } from '../constants';
 import { 
   Trash2, 
   Plus, 
@@ -50,9 +51,6 @@ import { Header } from './Header';
 import { Footer } from './Footer';
 
 import { Reports } from './Reports';
-
-// URL unificada com App.tsx para garantir que a auditoria consulte o mesmo banco de dados dos logs
-const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzx3Zk6Smwx4SJXw0ZRs_2xm-FcOhFrQ4zMR2kSCc6gUFAvRpmALEINYGaOJKP4Q8ldkg/exec';
 
 interface AuditUser {
   username: string;
@@ -269,26 +267,46 @@ export const Settings: React.FC<SettingsProps> = ({
     const targetUrl = rawUrl?.trim();
     
     try {
-      await fetch(targetUrl, {
+      const response = await fetch(targetUrl, {
         method: 'POST',
-        mode: 'no-cors',
+        mode: 'cors',
         headers: {
-          'Content-Type': 'text/plain'
+          'Content-Type': 'text/plain;charset=utf-8'
         },
         body: JSON.stringify({ action: 'saveUser', ...newUser })
+      }).catch(err => {
+        console.warn("Erro CORS ao salvar usuário, tentando no-cors...", err);
+        return fetch(targetUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify({ action: 'saveUser', ...newUser })
+        });
       });
       
-      alert("Registro de usuário enviado com sucesso.");
+      if (response && response.type !== 'opaque') {
+        const result = await response.json();
+        if (result.result === 'success') {
+          alert("Usuário cadastrado com sucesso!");
+        } else {
+          alert(`Erro: ${result.message}`);
+        }
+      } else {
+        alert("Comando enviado ao servidor. Verifique a lista em instantes.");
+      }
+      
       setNewUser({ username: '', password: '' });
       
-      // Delay de propagação no Google Sheets antes de atualizar a lista local
       setTimeout(() => {
         fetchUsers();
         setIsSavingUser(false);
-      }, 2500);
+      }, 2000);
       
     } catch (e) {
-      alert("Erro ao gravar usuário no banco.");
+      console.error("Save User Error:", e);
+      alert("Erro ao processar solicitação.");
       setIsSavingUser(false);
     }
   };
@@ -300,19 +318,40 @@ export const Settings: React.FC<SettingsProps> = ({
     const rawUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
     const targetUrl = rawUrl?.trim();
     try {
-      await fetch(targetUrl, {
+      const response = await fetch(targetUrl, {
         method: 'POST',
-        mode: 'no-cors',
+        mode: 'cors',
         headers: {
-          'Content-Type': 'text/plain'
+          'Content-Type': 'text/plain;charset=utf-8'
         },
         body: JSON.stringify({ action: 'deleteUser', username })
+      }).catch(err => {
+        console.warn("Erro CORS ao excluir usuário, tentando no-cors...", err);
+        return fetch(targetUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify({ action: 'deleteUser', username })
+        });
       });
       
-      alert("Comando de exclusão enviado.");
+      if (response && response.type !== 'opaque') {
+        const result = await response.json();
+        if (result.result === 'success') {
+          alert("Usuário excluído com sucesso!");
+        } else {
+          alert(`Erro: ${result.message}`);
+        }
+      } else {
+        alert("Comando de exclusão enviado.");
+      }
+      
       setTimeout(fetchUsers, 2000);
     } catch (e) {
-      alert("Erro ao excluir usuário.");
+      console.error("Delete User Error:", e);
+      alert("Erro ao processar exclusão.");
     }
   };
 

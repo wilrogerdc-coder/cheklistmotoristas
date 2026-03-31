@@ -8,7 +8,8 @@ import { Settings } from './components/Settings';
 import { 
   INITIAL_CHECKLIST_ITEMS, 
   INITIAL_VEHICLE_IMAGES,
-  INITIAL_VEHICLE_RATIOS
+  INITIAL_VEHICLE_RATIOS,
+  FIXED_GOOGLE_SHEET_URL
 } from './constants';
 import { 
   InspectionData, 
@@ -30,8 +31,6 @@ import {
   Upload,
   FileText
 } from 'lucide-react';
-
-const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzx3Zk6Smwx4SJXw0ZRs_2xm-FcOhFrQ4zMR2kSCc6gUFAvRpmALEINYGaOJKP4Q8ldkg/exec';
 
 const App: React.FC = () => {
   const [view, setView] = useState<'checklist' | 'settings'>('checklist');
@@ -295,23 +294,23 @@ const App: React.FC = () => {
       logData.fullData = JSON.stringify(optimizedMirror);
     }
 
-    console.log("Enviando dados para o Google Sheets...", { id: logData.id, size: logData.fullData.length });
+    const targetUrlWithAction = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=saveLog`;
+    console.log("Enviando dados para o Google Sheets...", { id: logData.id, size: logData.fullData.length, url: targetUrlWithAction });
 
     try {
       console.log("Payload para envio:", logData);
       
-      // Tenta enviar com CORS para receber resposta
-      const response = await fetch(targetUrl, {
+      // Usamos text/plain para evitar problemas de CORS (preflight) com Google Apps Script
+      const response = await fetch(targetUrlWithAction, {
         method: 'POST',
-        mode: 'cors', // Tenta CORS primeiro
+        mode: 'cors',
         headers: {
           'Content-Type': 'text/plain;charset=utf-8',
         },
         body: JSON.stringify(logData)
       }).catch(err => {
         console.warn("Erro CORS ou Rede, tentando modo no-cors...", err);
-        // Fallback para no-cors se falhar (não teremos resposta mas os dados chegam)
-        return fetch(targetUrl, {
+        return fetch(targetUrlWithAction, {
           method: 'POST',
           mode: 'no-cors',
           headers: {
@@ -322,20 +321,14 @@ const App: React.FC = () => {
       });
 
       if (response && response.type !== 'opaque') {
-        try {
-          const result = await response.json();
-          if (result.result === 'success') {
-            console.log("Log salvo com sucesso no Google Sheets (CORS OK)");
-          } else {
-            console.error("Erro retornado pelo script:", result.message);
-            alert(`ERRO NO SCRIPT: ${result.message}`);
-          }
-        } catch (jsonErr) {
-          console.error("Erro ao processar resposta JSON:", jsonErr);
-          alert("ERRO: O servidor não retornou um JSON válido. Verifique se o script está publicado como 'Qualquer pessoa'.");
+        const result = await response.json();
+        if (result.result === 'success') {
+          console.log("Log salvo com sucesso no Google Sheets");
+        } else {
+          console.error("Erro retornado pelo script:", result.message);
         }
       } else {
-        console.log("Log enviado (modo no-cors ou resposta opaca). Verifique a planilha.");
+        console.log("Log enviado (modo no-cors). Verifique a planilha.");
       }
     } catch (err) {
       console.error("Erro fatal ao salvar no Google Sheets:", err);

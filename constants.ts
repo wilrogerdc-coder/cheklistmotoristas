@@ -60,3 +60,5 @@ export const INITIAL_VEHICLE_IMAGES: string[] = [
 export const INITIAL_VEHICLE_RATIOS: AspectRatio[] = [
   'landscape', 'landscape', 'landscape', 'landscape', 'landscape'
 ];
+
+export const FIXED_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbx6DPGFuH4H_PY_q6scgK6Tjq0l0-5BgF3EfucWYhCsSprX3ffLiobIOwusjQNkrKv54Q/exec';
