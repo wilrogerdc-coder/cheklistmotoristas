@@ -67,7 +67,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
   const printMirrorRef = useRef<HTMLDivElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const normalizePrefix = (p: string) => (p || '').replace(/[-\s]/g, '').toUpperCase();
+  const normalizePrefix = (p: any) => String(p || '').replace(/[-\s]/g, '').toUpperCase();
 
   const getFullData = (log: LogEntry): any => {
     const rawData = log.fullData || (log as any).fulldata;
@@ -245,7 +245,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
         heightLeft -= pdfHeight;
       }
       
-      const fileName = `Relatorio_Auditoria_${selectedLog.prefix}_${selectedLog.date.replace(/[/\\?%*:|"<>]/g, '-')}.pdf`;
+      const fileName = `Relatorio_Auditoria_${selectedLog.prefix}_${String(selectedLog.date || '').replace(/[/\\?%*:|"<>]/g, '-')}.pdf`;
       
       if (openInNewTab) {
         const blobUrl = pdf.output('bloburl');
@@ -272,7 +272,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
   }, [selectedLog, autoPrint]);
 
   const getInspector = (log: LogEntry) => {
-    return (log.inspector || log.Inspetor || log.inspetor || log.conferente || 'NÃO IDENTIFICADO').trim();
+    return String(log.inspector || log.Inspetor || log.inspetor || log.conferente || 'NÃO IDENTIFICADO').trim();
   };
 
   const uniquePrefixes = useMemo(() => {
@@ -338,7 +338,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
   };
 
   const renderNoveltiesReport = () => {
-    const novelties = filteredLogs.filter(log => (log.itemsStatus || '').includes('CN') || (log.generalObservation && log.generalObservation.trim() !== ''));
+    const novelties = filteredLogs.filter(log => String(log.itemsStatus || '').includes('CN') || (log.generalObservation && String(log.generalObservation).trim() !== ''));
 
     let totalCnItems = 0;
     novelties.forEach(log => {
@@ -481,8 +481,8 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
       total: filteredLogs.length,
       diario: filteredLogs.filter(l => l.checklistType === 'Diário').length,
       semanal: filteredLogs.filter(l => l.checklistType === 'Semanal').length,
-      withIssues: filteredLogs.filter(l => (l.itemsStatus || '').includes('CN')).length,
-      ok: filteredLogs.filter(l => !(l.itemsStatus || '').includes('CN')).length,
+      withIssues: filteredLogs.filter(l => String(l.itemsStatus || '').includes('CN')).length,
+      ok: filteredLogs.filter(l => !String(l.itemsStatus || '').includes('CN')).length,
     };
 
     const vehiclesMap: Record<string, number> = {};
@@ -595,7 +595,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                   <td className="p-2">{log.km}</td>
                   <td className="p-2 uppercase">{log.checklistType}</td>
                   <td className="p-2 uppercase font-medium break-words min-w-[150px]">{getInspector(log)}</td>
-                  <td className={`p-2 font-black uppercase ${(log.itemsStatus || '').includes('CN') ? 'text-red-600' : 'text-green-600'}`}>{log.itemsStatus || 'SN'}</td>
+                  <td className={`p-2 font-black uppercase ${String(log.itemsStatus || '').includes('CN') ? 'text-red-600' : 'text-green-600'}`}>{log.itemsStatus || 'SN'}</td>
                   <td className="p-2 italic text-gray-500 truncate max-w-[150px]">{log.generalObservation || '-'}</td>
                 </tr>
               ))}
@@ -627,8 +627,8 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
     const filteredByStatus = filteredLogs.filter(log => {
       if (statusFilter === 'all') return true;
       const status = (log.itemsStatus || '').toUpperCase();
-      if (statusFilter === 'ok') return !status.includes('CN');
-      if (statusFilter === 'cn') return status.includes('CN');
+      if (statusFilter === 'ok') return !String(status).includes('CN');
+      if (statusFilter === 'cn') return String(status).includes('CN');
       return true;
     });
 
@@ -711,7 +711,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                   {visibleColumns.type && <td className="p-2 uppercase">{log.checklistType}</td>}
                   {visibleColumns.inspector && <td className="p-2 uppercase font-medium break-words min-w-[150px]">{getInspector(log)}</td>}
                   {visibleColumns.status && (
-                    <td className={`p-2 font-black uppercase ${(log.itemsStatus || '').includes('CN') ? 'text-red-600' : 'text-green-600'}`}>
+                    <td className={`p-2 font-black uppercase ${String(log.itemsStatus || '').includes('CN') ? 'text-red-600' : 'text-green-600'}`}>
                       {log.itemsStatus || 'SN'}
                     </td>
                   )}
@@ -802,7 +802,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                           <td className="p-3 uppercase">{log.checklistType}</td>
                           <td className="p-3 uppercase font-medium">{getInspector(log)}</td>
                           <td className="p-3">
-                            <span className={`px-2 py-1 rounded-full font-black uppercase text-[9px] ${(log.itemsStatus || '').includes('CN') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                            <span className={`px-2 py-1 rounded-full font-black uppercase text-[9px] ${String(log.itemsStatus || '').includes('CN') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                               {log.itemsStatus || 'SN'}
                             </span>
                           </td>
@@ -930,7 +930,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `${title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+                a.download = `${String(title || '').replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
                 a.click();
               }}
               className="bg-green-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-2 shadow-lg hover:bg-green-700"
@@ -995,7 +995,7 @@ export const Reports: React.FC<ReportsProps> = ({ logs, settings, onFetch, isLoa
                     fullData: getFullData(l)
                   }))
                 },
-                title: `Dados do Relatório ${activeReport.toUpperCase()}`,
+                title: `Dados do Relatório ${(activeReport || '').toUpperCase()}`,
                 subtitle: `Total de Registros: ${filteredLogs.length}`
               })}
               disabled={isGeneratingPdf}
