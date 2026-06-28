@@ -57,7 +57,9 @@ import {
   Database,
   Download,
   Upload,
-  ExternalLink
+  ExternalLink,
+  Shield,
+  Settings as SettingsIcon
 } from 'lucide-react';
 import { Header } from './Header';
 import { Footer } from './Footer';
@@ -119,28 +121,28 @@ export const Settings: React.FC<SettingsProps> = ({
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
 
   const isTabAccessible = (tabId: string) => {
-    if (tabId === 'manual' || tabId === 'about') return true;
+    if (tabId === 'manual' || tabId === 'about' || tabId === 'login') return true;
 
     // Usuário Mestre Cavalieri sempre tem acesso total
     if (currentUser?.username.toLowerCase() === 'cavalieri') return true;
 
-    // Somente o super usuario cavalieri tem acesso as telas Gestão de lançamento, Auditoria e Nuvem.
-    if (['admin', 'logs_admin', 'cloud'].includes(tabId)) {
-      return currentUser?.username.toLowerCase() === 'cavalieri';
-    }
+    const permissions = currentUser?.permissions as UserPermissions;
+    if (!permissions) return false;
 
-    // Mapeamento de abas para permissões (prioridade para permissões granulares)
-    const permissions = currentUser?.permissions as any;
-    if (permissions) {
-      if (tabId === 'stations' && (permissions.manageStations || permissions.settings)) return true;
-      if (tabId === 'vehicles' && (permissions.manageVehicles || permissions.settings)) return true;
-      if (tabId === 'users' && (permissions.manageUsers || permissions.settings)) return true;
-      if (tabId === 'items' && (permissions.manageItems || permissions.settings)) return true;
-      if (tabId === 'images' && (permissions.manageImages || permissions.settings)) return true;
-      if (tabId === 'style' && (permissions.manageStyle || permissions.settings)) return true;
-      if (tabId === 'reports' && (permissions.reports)) return true;
-      if (tabId === 'report_editor' && (permissions.reports)) return true;
-    }
+    // Admin Geral continua como mestre do sistema
+    if (permissions.admin) return true;
+
+    // Mapeamento granular estrito para todos os usuários (incluindo quem tem permissão 'settings')
+    if (tabId === 'stations') return !!permissions.manageStations;
+    if (tabId === 'vehicles') return !!permissions.manageVehicles;
+    if (tabId === 'users') return !!permissions.manageUsers;
+    if (tabId === 'items') return !!permissions.manageItems;
+    if (tabId === 'images') return !!permissions.manageImages;
+    if (tabId === 'style') return !!permissions.manageStyle;
+    if (tabId === 'reports' || tabId === 'report_editor') return !!permissions.reports;
+    if (tabId === 'logs_admin') return !!permissions.manageLogs;
+    if (tabId === 'admin') return !!permissions.viewAudit;
+    if (tabId === 'cloud') return !!permissions.manageDatabase;
 
     return false;
   };
@@ -1724,10 +1726,42 @@ export const Settings: React.FC<SettingsProps> = ({
                       className="w-full bg-white border rounded-2xl p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500" 
                     />
                   </div>
-                  <div className="space-y-6 border-t pt-4">
+                  <div className="space-y-6 border-t pt-4 md:col-span-4">
                     <h5 className="text-[10px] font-black text-gray-500 uppercase flex items-center gap-1">Configurações de Permissões</h5>
                     
                     <div className="space-y-4">
+                      {/* Grupo 0: Permissões de Administração Mestre */}
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black text-red-600 uppercase tracking-widest ml-1">Administração Mestre</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                          {[
+                            { id: 'admin', label: 'Admin Geral' },
+                            { id: 'settings', label: 'Acesso Ajustes' },
+                          ].map((perm) => {
+                            const canEdit = currentUser?.username?.toUpperCase() === 'CAVALIERI';
+                            
+                            return (
+                            <label key={perm.id} className={`flex items-center gap-2 p-2 border rounded-xl transition-colors ${canEdit ? 'cursor-pointer hover:bg-gray-50' : 'cursor-not-allowed opacity-60 bg-gray-50'}`}>
+                              <input 
+                                type="checkbox" 
+                                disabled={!canEdit}
+                                checked={localUserForm.permissions?.[perm.id as keyof UserPermissions] || false} 
+                                onChange={e => setLocalUserForm({
+                                  ...localUserForm, 
+                                  permissions: {
+                                    ...localUserForm.permissions!, 
+                                    [perm.id]: e.target.checked
+                                  }
+                                })}
+                                className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500" 
+                              />
+                              <span className={`text-[9px] font-black uppercase ${canEdit ? 'text-red-600' : 'text-gray-600'}`}>{perm.label}</span>
+                            </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+
                       {/* Grupo 1: Módulos de Acesso */}
                       <div className="space-y-2">
                         <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest ml-1">Módulos de Acesso</p>
@@ -1885,9 +1919,27 @@ export const Settings: React.FC<SettingsProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-3 flex-1">
+                  <div className="flex flex-col gap-2 flex-1">
+                    {/* Administração */}
+                    <div className="flex flex-wrap gap-1 items-center">
+                      <span className="text-[7px] font-black text-gray-400 uppercase w-10">Mestre:</span>
+                      {[
+                        { id: 'admin', label: 'Admin', icon: Shield },
+                        { id: 'settings', label: 'Ajustes', icon: SettingsIcon },
+                      ].map((perm: any) => {
+                        const hasPerm = (u.permissions as any)[perm.id];
+                        if (!hasPerm) return null;
+                        return (
+                          <div key={perm.id} className="flex items-center gap-1 px-1.5 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded text-[7px] font-black uppercase">
+                            {perm.label}
+                          </div>
+                        );
+                      })}
+                    </div>
+
                     {/* Acesso */}
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1 items-center">
+                      <span className="text-[7px] font-black text-gray-400 uppercase w-10">Módulos:</span>
                       {[
                         { id: 'checklist', label: 'Checklist', icon: ClipboardCheck },
                         { id: 'reports', label: 'Relatórios', icon: FileSearch },
@@ -1895,15 +1947,16 @@ export const Settings: React.FC<SettingsProps> = ({
                         const hasPerm = (u.permissions as any)[perm.id];
                         if (!hasPerm) return null;
                         return (
-                          <div key={perm.id} className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 border border-blue-100 rounded-md text-[8px] font-black uppercase">
-                            <perm.icon className="w-2.5 h-2.5" /> {perm.label}
+                          <div key={perm.id} className="flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-100 rounded text-[7px] font-black uppercase">
+                            {perm.label}
                           </div>
                         );
                       })}
                     </div>
 
                     {/* Gestão */}
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1 items-center">
+                      <span className="text-[7px] font-black text-gray-400 uppercase w-10">Gestão:</span>
                       {[
                         { id: 'manageStations', label: 'Postos', icon: Navigation },
                         { id: 'manageVehicles', label: 'Viaturas', icon: Car },
@@ -1913,15 +1966,16 @@ export const Settings: React.FC<SettingsProps> = ({
                         const hasPerm = (u.permissions as any)[perm.id];
                         if (!hasPerm) return null;
                         return (
-                          <div key={perm.id} className="flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-md text-[8px] font-black uppercase">
-                            <perm.icon className="w-2.5 h-2.5" /> {perm.label}
+                          <div key={perm.id} className="flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded text-[7px] font-black uppercase">
+                            {perm.label}
                           </div>
                         );
                       })}
                     </div>
 
                     {/* Sistema */}
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1 items-center">
+                      <span className="text-[7px] font-black text-gray-400 uppercase w-10">Sistema:</span>
                       {[
                         { id: 'manageImages', label: 'Plantas', icon: ImageIcon },
                         { id: 'manageStyle', label: 'Estilo', icon: Palette },
@@ -1932,15 +1986,16 @@ export const Settings: React.FC<SettingsProps> = ({
                         const hasPerm = (u.permissions as any)[perm.id];
                         if (!hasPerm) return null;
                         return (
-                          <div key={perm.id} className="flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-600 border border-amber-100 rounded-md text-[8px] font-black uppercase">
-                            <perm.icon className="w-2.5 h-2.5" /> {perm.label}
+                          <div key={perm.id} className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded text-[7px] font-black uppercase">
+                            {perm.label}
                           </div>
                         );
                       })}
                     </div>
 
                     {/* Assinaturas */}
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1 items-center">
+                      <span className="text-[7px] font-black text-gray-400 uppercase w-10">Assin.:</span>
                       {[
                         { id: 'canSign', label: 'Assinar Doc', icon: ShieldCheck },
                         { id: 'signAsChefeMotoristas', label: 'Ch. Motoristas', icon: UserCheck },
@@ -1951,8 +2006,8 @@ export const Settings: React.FC<SettingsProps> = ({
                         const hasPerm = (u.permissions as any)[perm.id];
                         if (!hasPerm) return null;
                         return (
-                          <div key={perm.id} className="flex items-center gap-1 px-2 py-1 bg-green-50 text-green-600 border border-green-100 rounded-md text-[8px] font-black uppercase">
-                            <perm.icon className="w-2.5 h-2.5" /> {perm.label}
+                          <div key={perm.id} className="flex items-center gap-1 px-1.5 py-0.5 bg-green-50 text-green-600 border border-green-100 rounded text-[7px] font-black uppercase">
+                            {perm.label}
                           </div>
                         );
                       })}

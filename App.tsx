@@ -772,15 +772,15 @@ const App: React.FC = () => {
   // Removido o bloqueio de login obrigatório
   
   const hasPermission = (screen: keyof User['permissions']) => {
-    // Menu Dashboard (reports) agora está liberado para todos os usuários conforme solicitado
-    if (screen === 'reports') return true;
-
     // Se não há usuário logado (Visitante), restringimos menus críticos
     if (!currentUser) {
-      if (screen === 'settings' || screen === 'admin') return false;
-      return true; // Checklist e outros podem ser permitidos para Visitantes se não houver bloqueio explícito
+      if (screen === 'checklist') return true; // Permitido para preencher checklist
+      return false; // Todos os outros bloqueados para não logados
     }
     
+    // Usuário Mestre Cavalieri sempre tem acesso total
+    if (currentUser.username.toLowerCase() === 'cavalieri') return true;
+
     // Se há usuário logado, respeitamos estritamente suas permissões cadastradas
     if (screen === 'settings') {
       return !!(currentUser.permissions.manageStations || 
@@ -791,14 +791,15 @@ const App: React.FC = () => {
                currentUser.permissions.manageStyle || 
                currentUser.permissions.manageLogs || 
                currentUser.permissions.manageDatabase || 
-               currentUser.permissions.settings);
+               currentUser.permissions.settings ||
+               currentUser.permissions.admin);
     }
     
     if (screen === 'admin') {
       return !!(currentUser.permissions.viewAudit || currentUser.permissions.admin || currentUser.permissions.manageUsers);
     }
     
-    return currentUser.permissions[screen];
+    return !!currentUser.permissions[screen];
   };
 
   const handleExportModel = () => {
