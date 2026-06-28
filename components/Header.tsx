@@ -9,9 +9,20 @@ interface HeaderProps {
   logoUrl1?: string;
   logoUrl2?: string;
   bgColor?: string;
+  vehicleType?: string;
+  station?: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({ title, date, onDateChange, logoUrl1, logoUrl2, bgColor }) => {
+export const Header: React.FC<HeaderProps> = ({ 
+  title, 
+  date, 
+  onDateChange, 
+  logoUrl1, 
+  logoUrl2, 
+  bgColor,
+  vehicleType,
+  station 
+}) => {
   const headerStyle = bgColor ? { backgroundColor: bgColor } : {};
   
   // Formata a data para exibição no PDF (DD/MM/AAAA)
@@ -40,6 +51,12 @@ export const Header: React.FC<HeaderProps> = ({ title, date, onDateChange, logoU
 
           <div>
             <h1 className="text-xl sm:text-2xl print:text-xl font-bold leading-tight">{title}</h1>
+            {(vehicleType || station) && (
+              <div className="flex gap-2 mt-1">
+                {station && <span className="bg-white/20 px-2 py-0.5 rounded text-[10px] font-black uppercase">{station}</span>}
+                {vehicleType && <span className="bg-black/20 px-2 py-0.5 rounded text-[10px] font-black uppercase text-white/80">{vehicleType}</span>}
+              </div>
+            )}
           </div>
         </div>
 
