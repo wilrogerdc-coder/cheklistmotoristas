@@ -86,6 +86,7 @@ export interface InspectionData {
 }
 
 export interface UserPermissions {
+  [key: string]: boolean | undefined;
   checklist: boolean;
   reports: boolean;
   settings: boolean;
@@ -105,6 +106,23 @@ export interface UserPermissions {
   manageDatabase?: boolean;
   viewAudit?: boolean;
   manageLogs?: boolean;
+  manageReportEditor?: boolean;
+  // Permissões granulares de relatórios
+  reportNovelties?: boolean;
+  reportSynthetic?: boolean;
+  reportAnalytical?: boolean;
+  reportFull?: boolean;
+  reportMonthlyGrouped?: boolean;
+  reportHistory?: boolean;
+  reportDailyControl?: boolean;
+  reportDailyControlMotos?: boolean;
+  reportWeeklyLeves?: boolean;
+  reportWeeklyMotos?: boolean;
+  reportWeeklyAb?: boolean;
+  reportRetroactiveLogs?: boolean;
+  reportFinalMonthlyBook?: boolean;
+  reportFleetDashboard?: boolean;
+  reportKmMonthly?: boolean;
 }
 
 export interface User {

@@ -130,20 +130,42 @@ export const Settings: React.FC<SettingsProps> = ({
     const permissions = currentUser?.permissions as UserPermissions;
     if (!permissions) return false;
 
-    // Admin Geral continua como mestre do sistema
+    // Telas Restritas Somente ao Super Usuário Cavalieri
+    if (['cloud', 'logs_admin', 'admin', 'report_editor'].includes(tabId)) {
+      return currentUser?.username.toLowerCase() === 'cavalieri';
+    }
+
+    // Admin Geral continua como mestre do sistema para as demais telas
     if (permissions.admin) return true;
 
-    // Mapeamento granular estrito para todos os usuários (incluindo quem tem permissão 'settings')
+    // Mapeamento granular estrito para todos os usuários
     if (tabId === 'stations') return !!permissions.manageStations;
     if (tabId === 'vehicles') return !!permissions.manageVehicles;
     if (tabId === 'users') return !!permissions.manageUsers;
     if (tabId === 'items') return !!permissions.manageItems;
     if (tabId === 'images') return !!permissions.manageImages;
     if (tabId === 'style') return !!permissions.manageStyle;
-    if (tabId === 'reports' || tabId === 'report_editor') return !!permissions.reports;
-    if (tabId === 'logs_admin') return !!permissions.manageLogs;
-    if (tabId === 'admin') return !!permissions.viewAudit;
-    if (tabId === 'cloud') return !!permissions.manageDatabase;
+
+    if (tabId === 'reports') {
+      return !!(
+        permissions.reports || 
+        permissions.reportNovelties || 
+        permissions.reportSynthetic || 
+        permissions.reportAnalytical || 
+        permissions.reportFull || 
+        permissions.reportMonthlyGrouped || 
+        permissions.reportHistory || 
+        permissions.reportDailyControl || 
+        permissions.reportDailyControlMotos || 
+        permissions.reportWeeklyLeves || 
+        permissions.reportWeeklyMotos || 
+        permissions.reportWeeklyAb || 
+        permissions.reportRetroactiveLogs || 
+        permissions.reportFinalMonthlyBook || 
+        permissions.reportFleetDashboard || 
+        permissions.reportKmMonthly
+      );
+    }
 
     return false;
   };
@@ -906,6 +928,20 @@ export const Settings: React.FC<SettingsProps> = ({
       return;
     }
     
+    const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
+    const restrictedPerms = ['viewAudit', 'manageLogs', 'manageDatabase', 'manageReportEditor'];
+    
+    // Validar permissões: usuário não pode dar o que não tem
+    const validatedPermissions = { ...localUserForm.permissions } as UserPermissions;
+    Object.keys(validatedPermissions).forEach(key => {
+      const k = key as keyof UserPermissions;
+      if (validatedPermissions[k]) {
+        const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[k];
+        const canGrant = isCavalieri || (hasPermission && !restrictedPerms.includes(k as string));
+        if (!canGrant) validatedPermissions[k] = false;
+      }
+    });
+
     const newUser: User = {
       id: crypto.randomUUID(),
       username: localUserForm.username.toLowerCase(),
@@ -913,12 +949,7 @@ export const Settings: React.FC<SettingsProps> = ({
       password: localUserForm.password,
       name: localUserForm.name,
       rank: localUserForm.rank,
-      permissions: localUserForm.permissions || {
-        checklist: true,
-        reports: true,
-        settings: false,
-        admin: false
-      }
+      permissions: validatedPermissions
     };
     
     setLocalSettings({
@@ -948,8 +979,26 @@ export const Settings: React.FC<SettingsProps> = ({
       return;
     }
 
+    const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
+    const restrictedPerms = ['viewAudit', 'manageLogs', 'manageDatabase', 'manageReportEditor'];
+
     const updatedUsers: User[] = (localSettings.users || []).map(u => {
       if (u.id === editingLocalUser.id) {
+        // Validar permissões na edição
+        const validatedPermissions = { ...(localUserForm.permissions || u.permissions) } as UserPermissions;
+        
+        // Se não for Cavalieri editando, aplicamos restrições estritas
+        if (!isCavalieri) {
+          Object.keys(validatedPermissions).forEach(key => {
+            const k = key as keyof UserPermissions;
+            if (validatedPermissions[k]) {
+              const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[k];
+              const canGrant = hasPermission && !restrictedPerms.includes(k as string);
+              if (!canGrant) validatedPermissions[k] = false;
+            }
+          });
+        }
+
         return {
           ...u,
           username: localUserForm.username!.toLowerCase(),
@@ -957,7 +1006,7 @@ export const Settings: React.FC<SettingsProps> = ({
           password: localUserForm.password!,
           name: localUserForm.name!,
           rank: localUserForm.rank,
-          permissions: localUserForm.permissions || u.permissions
+          permissions: validatedPermissions
         };
       }
       return u;
@@ -1265,6 +1314,24 @@ export const Settings: React.FC<SettingsProps> = ({
                           <h5 className="text-xs font-black uppercase text-indigo-400 tracking-widest flex items-center gap-2"><PieChart className="w-4 h-4"/> Comparativo Geral</h5>
                           <p className="text-xs text-gray-300 font-medium leading-loose">Compare o desempenho entre postos e SGBs, identificando quais unidades e viaturas (UR, ABS, etc.) possuem maior volume de rodagem no período selecionado.</p>
                        </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* 7. PERMISSÕES E HIERARQUIA */}
+                <section className="space-y-4">
+                  <div className="flex items-center gap-3 border-b border-gray-100 pb-2">
+                    <div className="bg-rose-600 text-white w-10 h-10 rounded-2xl flex items-center justify-center font-black shadow-lg shadow-rose-100">07</div>
+                    <h4 className="text-sm font-black uppercase text-gray-900">Permissões e Hierarquia</h4>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-rose-50 p-6 rounded-3xl border border-rose-100">
+                      <h5 className="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-1">Controle de Acesso Granular</h5>
+                      <p className="text-xs text-gray-600 leading-relaxed font-medium">As permissões agora são definidas tela a tela e relatório a relatório. Administradores podem restringir acesso a Postos, Viaturas, Itens e selecionar individualmente quais relatórios cada usuário pode gerar.</p>
+                    </div>
+                    <div className="bg-rose-50 p-6 rounded-3xl border border-rose-100">
+                      <h5 className="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-1">Restrições de Segurança</h5>
+                      <p className="text-xs text-gray-600 leading-relaxed font-medium">Um usuário com permissão de editar outros não pode conceder permissões que ele próprio não possua. Telas sensíveis como Nuvem, Auditoria e Editor de Relatórios são exclusivas do super usuário.</p>
                     </div>
                   </div>
                 </section>
@@ -1845,10 +1912,16 @@ export const Settings: React.FC<SettingsProps> = ({
                           {[
                             { id: 'checklist', label: 'Checklist' },
                             { id: 'reports', label: 'Relatórios' },
-                          ].map((perm) => (
-                            <label key={perm.id} className="flex items-center gap-2 p-2 border rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
+                          ].map((perm) => {
+                            const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
+                            const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
+                            const canEdit = isCavalieri || hasPermission;
+
+                            return (
+                            <label key={perm.id} className={`flex items-center gap-2 p-2 border rounded-xl transition-colors ${canEdit ? 'cursor-pointer hover:bg-gray-50' : 'cursor-not-allowed opacity-60 bg-gray-50'}`}>
                               <input 
                                 type="checkbox" 
+                                disabled={!canEdit}
                                 checked={localUserForm.permissions?.[perm.id as keyof UserPermissions] || false} 
                                 onChange={e => setLocalUserForm({
                                   ...localUserForm, 
@@ -1859,9 +1932,10 @@ export const Settings: React.FC<SettingsProps> = ({
                                 })}
                                 className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
                               />
-                              <span className="text-[9px] font-black uppercase text-gray-600">{perm.label}</span>
+                              <span className={`text-[9px] font-black uppercase ${canEdit ? 'text-gray-600' : 'text-gray-400'}`}>{perm.label}</span>
                             </label>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
 
@@ -1874,10 +1948,16 @@ export const Settings: React.FC<SettingsProps> = ({
                             { id: 'manageVehicles', label: 'Viaturas' },
                             { id: 'manageUsers', label: 'Usuários' },
                             { id: 'manageItems', label: 'Itens' },
-                          ].map((perm) => (
-                            <label key={perm.id} className="flex items-center gap-2 p-2 border rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
+                          ].map((perm) => {
+                            const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
+                            const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
+                            const canEdit = isCavalieri || hasPermission;
+
+                            return (
+                            <label key={perm.id} className={`flex items-center gap-2 p-2 border rounded-xl transition-colors ${canEdit ? 'cursor-pointer hover:bg-gray-50' : 'cursor-not-allowed opacity-60 bg-gray-50'}`}>
                               <input 
                                 type="checkbox" 
+                                disabled={!canEdit}
                                 checked={localUserForm.permissions?.[perm.id as keyof UserPermissions] || false} 
                                 onChange={e => setLocalUserForm({
                                   ...localUserForm, 
@@ -1888,9 +1968,10 @@ export const Settings: React.FC<SettingsProps> = ({
                                 })}
                                 className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
                               />
-                              <span className="text-[9px] font-black uppercase text-gray-600">{perm.label}</span>
+                              <span className={`text-[9px] font-black uppercase ${canEdit ? 'text-gray-600' : 'text-gray-400'}`}>{perm.label}</span>
                             </label>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
 
@@ -1904,9 +1985,15 @@ export const Settings: React.FC<SettingsProps> = ({
                             { id: 'viewAudit', label: 'Auditoria' },
                             { id: 'manageLogs', label: 'Gestão Lanç.' },
                             { id: 'manageDatabase', label: 'Nuvem' },
+                            { id: 'manageReportEditor', label: 'Editor Relat.' },
                           ].map((perm) => {
-                            const isRestricted = ['manageImages', 'manageStyle', 'viewAudit', 'manageLogs', 'manageDatabase'].includes(perm.id);
-                            const canEdit = !isRestricted || currentUser?.username?.toUpperCase() === 'CAVALIERI';
+                            const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
+                            const isRestricted = ['viewAudit', 'manageLogs', 'manageDatabase', 'manageReportEditor'].includes(perm.id);
+                            
+                            // Regra: Somente Cavalieri pode conceder permissões restritas.
+                            // Para as demais, o usuário deve possuir a permissão para concedê-la.
+                            const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
+                            const canEdit = isCavalieri || (hasPermission && !isRestricted);
                             
                             return (
                             <label key={perm.id} className={`flex items-center gap-2 p-2 border rounded-xl transition-colors ${canEdit ? 'cursor-pointer hover:bg-gray-50' : 'cursor-not-allowed opacity-60 bg-gray-50'}`}>
@@ -1923,7 +2010,7 @@ export const Settings: React.FC<SettingsProps> = ({
                                 })}
                                 className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
                               />
-                              <span className={`text-[9px] font-black uppercase ${isRestricted && canEdit ? 'text-amber-600' : 'text-gray-600'}`}>{perm.label}</span>
+                              <span className={`text-[9px] font-black uppercase ${isRestricted && canEdit ? 'text-amber-600' : canEdit ? 'text-gray-600' : 'text-gray-400'}`}>{perm.label}</span>
                             </label>
                             );
                           })}
@@ -1940,10 +2027,16 @@ export const Settings: React.FC<SettingsProps> = ({
                             { id: 'signAsCmtProntidao', label: 'CMT Prontidão' },
                             { id: 'signAsCmtPosto', label: 'CMT Posto' },
                             { id: 'signAsCmtSgb', label: 'CMT SGB' }
-                          ].map((perm) => (
-                            <label key={perm.id} className="flex items-center gap-2 p-2 border rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
+                          ].map((perm) => {
+                            const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
+                            const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
+                            const canEdit = isCavalieri || hasPermission;
+
+                            return (
+                            <label key={perm.id} className={`flex items-center gap-2 p-2 border rounded-xl transition-colors ${canEdit ? 'cursor-pointer hover:bg-gray-50' : 'cursor-not-allowed opacity-60 bg-gray-50'}`}>
                               <input 
                                 type="checkbox" 
+                                disabled={!canEdit}
                                 checked={localUserForm.permissions?.[perm.id as keyof UserPermissions] || false} 
                                 onChange={e => setLocalUserForm({
                                   ...localUserForm, 
@@ -1954,9 +2047,57 @@ export const Settings: React.FC<SettingsProps> = ({
                                 })}
                                 className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
                               />
-                              <span className="text-[9px] font-black uppercase text-gray-600">{perm.label}</span>
+                              <span className={`text-[9px] font-black uppercase ${canEdit ? 'text-gray-600' : 'text-gray-400'}`}>{perm.label}</span>
                             </label>
-                          ))}
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Grupo 5: Permissões de Relatórios Específicos */}
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest ml-1">Relatórios Autorizados</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                          {[
+                            { id: 'reportNovelties', label: 'Alterações' },
+                            { id: 'reportSynthetic', label: 'Sintético' },
+                            { id: 'reportAnalytical', label: 'Analítico' },
+                            { id: 'reportFull', label: 'Completo' },
+                            { id: 'reportMonthlyGrouped', label: 'Agrup. Mensal' },
+                            { id: 'reportHistory', label: 'Histórico' },
+                            { id: 'reportDailyControl', label: 'Controle Diário' },
+                            { id: 'reportDailyControlMotos', label: 'Diário Motos' },
+                            { id: 'reportWeeklyLeves', label: 'Semanal Leves' },
+                            { id: 'reportWeeklyMotos', label: 'Semanal Motos' },
+                            { id: 'reportWeeklyAb', label: 'Semanal AB' },
+                            { id: 'reportRetroactiveLogs', label: 'Lanç. Retroat.' },
+                            { id: 'reportFinalMonthlyBook', label: 'Livro Mensal' },
+                            { id: 'reportFleetDashboard', label: 'Dashboard' },
+                            { id: 'reportKmMonthly', label: 'KM Mensal' },
+                          ].map((perm) => {
+                            const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
+                            const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
+                            const canEdit = isCavalieri || hasPermission;
+
+                            return (
+                            <label key={perm.id} className={`flex items-center gap-2 p-2 border rounded-xl transition-colors ${canEdit ? 'cursor-pointer hover:bg-gray-50' : 'cursor-not-allowed opacity-60 bg-gray-50'}`}>
+                              <input 
+                                type="checkbox" 
+                                disabled={!canEdit}
+                                checked={localUserForm.permissions?.[perm.id as keyof UserPermissions] || false} 
+                                onChange={e => setLocalUserForm({
+                                  ...localUserForm, 
+                                  permissions: {
+                                    ...localUserForm.permissions!, 
+                                    [perm.id]: e.target.checked
+                                  }
+                                })}
+                                className="w-4 h-4 rounded border-gray-300 text-rose-600 focus:ring-rose-500" 
+                              />
+                              <span className={`text-[9px] font-black uppercase ${canEdit ? 'text-gray-600' : 'text-gray-400'}`}>{perm.label}</span>
+                            </label>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -2058,6 +2199,7 @@ export const Settings: React.FC<SettingsProps> = ({
                         { id: 'viewAudit', label: 'Auditoria', icon: ShieldAlert },
                         { id: 'manageLogs', label: 'Gestão Lanç.', icon: Database },
                         { id: 'manageDatabase', label: 'Nuvem', icon: Cloud },
+                        { id: 'manageReportEditor', label: 'Editor Relat.', icon: Edit2 },
                       ].map((perm: any) => {
                         const hasPerm = (u.permissions as any)[perm.id];
                         if (!hasPerm) return null;

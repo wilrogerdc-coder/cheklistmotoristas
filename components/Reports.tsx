@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { Justification, LogEntry, AppSettings, User } from "../types";
+import { Justification, LogEntry, AppSettings, User, UserPermissions } from "../types";
 import { Header } from "./Header";
 import { Footer } from "./Footer";
 import { FleetDashboard } from "./FleetDashboard";
@@ -5977,7 +5977,32 @@ export const Reports: React.FC<ReportsProps> = ({
               icon: FileText,
               color: "bg-gradient-to-br from-blue-900 to-indigo-950 border-2 border-yellow-400 font-black",
             },
-          ].map((report) => (
+          ].filter(report => {
+            if (!currentUser) return false;
+            if (currentUser.username.toLowerCase() === 'cavalieri') return true;
+            if (currentUser.permissions.admin) return true;
+            
+            const manualMapping: Record<string, keyof UserPermissions> = {
+              'fleet_dashboard': 'reportFleetDashboard',
+              'novelties': 'reportNovelties',
+              'synthetic': 'reportSynthetic',
+              'analytical': 'reportAnalytical',
+              'full': 'reportFull',
+              'monthly_grouped': 'reportMonthlyGrouped',
+              'history': 'reportHistory',
+              'daily_control': 'reportDailyControl',
+              'daily_control_motos': 'reportDailyControlMotos',
+              'weekly_leves': 'reportWeeklyLeves',
+              'weekly_motos': 'reportWeeklyMotos',
+              'weekly_ab': 'reportWeeklyAb',
+              'retroactive_logs': 'reportRetroactiveLogs',
+              'km_monthly': 'reportKmMonthly',
+              'final_monthly_book': 'reportFinalMonthlyBook'
+            };
+            
+            const finalKey = manualMapping[report.id];
+            return !!currentUser.permissions[finalKey];
+          }).map((report) => (
             <button
               key={report.id}
               onClick={() => setActiveReport(report.id as ReportType)}

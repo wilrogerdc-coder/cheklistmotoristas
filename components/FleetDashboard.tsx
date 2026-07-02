@@ -100,6 +100,47 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
   };
 
   // Group vehicles by Station
+    const lastMonthStr = useMemo(() => {
+      const d = new Date(today.year, today.month - 1, 1);
+      d.setMonth(d.getMonth() - 1);
+      return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}`;
+    }, [today]);
+
+    const kmCurrentMonthStr = `${today.year}-${String(today.month).padStart(2, "0")}`;
+
+    const getKmDrivenForVehicle = (prefix: string, monthStr: string) => {
+      const parts = monthStr.split('-');
+      const year = parseInt(parts[0]);
+      const month = parseInt(parts[1]);
+      
+      const monthLogs = logs.filter(l => {
+        const comps = parseDateToComps(l.date);
+        return normalizeText(l.prefix) === prefix && comps?.y === year && comps?.m === month;
+      });
+
+      if (monthLogs.length === 0) return 0;
+
+      const kms = monthLogs.map(l => parseInt(l.km)).filter(k => !isNaN(k));
+      const maxKm = Math.max(...kms);
+
+      const logsBefore = logs.filter(l => {
+        const comps = parseDateToComps(l.date);
+        if (!comps) return false;
+        const logDate = new Date(comps.y, comps.m - 1, comps.d);
+        const startOfMonth = new Date(year, month - 1, 1);
+        return normalizeText(l.prefix) === prefix && logDate < startOfMonth;
+      });
+
+      if (logsBefore.length > 0) {
+        const kmsBefore = logsBefore.map(l => parseInt(l.km)).filter(k => !isNaN(k));
+        const lastKmBefore = Math.max(...kmsBefore);
+        return Math.max(0, maxKm - lastKmBefore);
+      } else {
+        const minKm = Math.min(...kms);
+        return Math.max(0, maxKm - minKm);
+      }
+    };
+
   const stationsData = useMemo(() => {
     const stationMap: Record<string, { id?: string, name: string, vehicles: any[] }> = {};
     
@@ -164,6 +205,10 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
         return false;
       }) || [];
 
+      // Calculate KM for comparison
+      const kmCurrentMonth = getKmDrivenForVehicle(vehiclePrefix, kmCurrentMonthStr);
+      const kmLastMonth = getKmDrivenForVehicle(vehiclePrefix, lastMonthStr);
+
       stationMap[stationKey].vehicles.push({
         ...v,
         logToday,
@@ -172,7 +217,9 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
         statusToday,
         hasNovelty,
         activeAlertsCount: activeAlerts.length,
-        hasAlerts: activeAlerts.length > 0
+        hasAlerts: activeAlerts.length > 0,
+        kmCurrentMonth,
+        kmLastMonth
       });
     });
 
@@ -183,13 +230,7 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
       if (nameB === "PB") return 1;
       return nameA.localeCompare(nameB);
     });
-  }, [logs, settings, justifications, today, filterType, stationFilter]);
-
-    const lastMonthStr = useMemo(() => {
-      const d = new Date(today.year, today.month - 1, 1);
-      d.setMonth(d.getMonth() - 1);
-      return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}`;
-    }, [today]);
+  }, [logs, settings, justifications, today, filterType, stationFilter, kmCurrentMonthStr, lastMonthStr]);
 
     const stats = useMemo(() => {
     const allRawVehicles = settings.vehicles || [];
@@ -214,36 +255,13 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
       };
     });
 
-    // Calculate KM driven in last month
+    // Calculate KM driven in current and last month
     let totalKmLastMonth = 0;
+    let totalKmCurrentMonth = 0;
     filteredVehicles.forEach(v => {
       const prefix = normalizeText(v.prefix);
-      const logsLastMonth = logs.filter(l => normalizeText(l.prefix) === prefix && parseDateToComps(l.date)?.y === parseInt(lastMonthStr.split('-')[0]) && parseDateToComps(l.date)?.m === parseInt(lastMonthStr.split('-')[1]));
-      
-      if (logsLastMonth.length > 0) {
-        const kms = logsLastMonth.map(l => parseInt(l.km)).filter(k => !isNaN(k));
-        if (kms.length > 0) {
-          const maxKm = Math.max(...kms);
-          // Find the last KM before last month
-          const logsBefore = logs.filter(l => {
-            const comps = parseDateToComps(l.date);
-            if (!comps) return false;
-            const logDate = new Date(comps.y, comps.m - 1, comps.d);
-            const startOfLastMonth = new Date(parseInt(lastMonthStr.split('-')[0]), parseInt(lastMonthStr.split('-')[1]) - 1, 1);
-            return normalizeText(l.prefix) === prefix && logDate < startOfLastMonth;
-          });
-          
-          if (logsBefore.length > 0) {
-            const kmsBefore = logsBefore.map(l => parseInt(l.km)).filter(k => !isNaN(k));
-            const lastKmBefore = Math.max(...kmsBefore);
-            totalKmLastMonth += (maxKm - lastKmBefore);
-          } else {
-            // If no logs before, use the difference between max and min in last month
-            const minKm = Math.min(...kms);
-            totalKmLastMonth += (maxKm - minKm);
-          }
-        }
-      }
+      totalKmLastMonth += getKmDrivenForVehicle(prefix, lastMonthStr);
+      totalKmCurrentMonth += getKmDrivenForVehicle(prefix, kmCurrentMonthStr);
     });
 
     return {
@@ -254,9 +272,10 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
       pending: processedAll.filter(v => v.statusToday === "PENDENTE").length,
       justification: processedAll.filter(v => v.pendingDays > 0).length,
       compliance: processedAll.length > 0 ? Math.round(((processedAll.filter(v => v.statusToday === "CONFERIDA").length) / processedAll.length) * 100) : 0,
-      kmLastMonth: totalKmLastMonth
+      kmLastMonth: totalKmLastMonth,
+      kmCurrentMonth: totalKmCurrentMonth
     };
-  }, [logs, settings, justifications, today, stationFilter, lastMonthStr]);
+  }, [logs, settings, justifications, today, stationFilter, lastMonthStr, kmCurrentMonthStr]);
 
   const handleAddAlert = () => {
     if (!selectedVehicleForAlerts || !newAlert.description) return;
@@ -413,6 +432,16 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
           </div>
 
           <div 
+            className="p-6 rounded-3xl border-2 bg-rose-50 border-rose-100"
+          >
+            <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Km Rodado (Mês Atual)</p>
+            <div className="flex items-end justify-between mt-1">
+              <p className="text-3xl font-black text-rose-900">{stats.kmCurrentMonth.toLocaleString()}</p>
+              <TrendingUp className="w-4 h-4 text-rose-400" />
+            </div>
+          </div>
+
+          <div 
             className="p-6 rounded-3xl border-2 bg-amber-50 border-amber-100"
           >
             <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Km Rodado (Mês Ant.)</p>
@@ -482,15 +511,25 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                           {v.statusToday === "CONFERIDA" ? "CONFERIDA" : "PENDENTE"}
                         </span>
                       </div>
-                      <div className="flex justify-between">
-                         <div>
-                            <span className="text-[9px] font-black text-gray-400 uppercase block">Km</span>
+                      <div className="flex justify-between items-center border-b border-gray-50 pb-3">
+                         <div className="flex flex-col">
+                            <span className="text-[9px] font-black text-gray-400 uppercase">Km Atual</span>
                             <span className="text-sm font-black text-gray-900">{v.currentKm || '---'}</span>
                          </div>
-                         <div className="text-right">
-                            <span className="text-[9px] font-black text-gray-400 uppercase block">Pendências</span>
+                         <div className="text-right flex flex-col">
+                            <span className="text-[9px] font-black text-gray-400 uppercase">Pendências</span>
                             <span className={`text-sm font-black ${v.pendingDays > 0 ? 'text-red-600' : 'text-green-600'}`}>{v.pendingDays} D</span>
                          </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-gray-50 p-2 rounded-xl">
+                          <span className="text-[8px] font-black text-gray-400 uppercase block">KM Mês Atual</span>
+                          <span className="text-[11px] font-black text-blue-600">+{v.kmCurrentMonth.toLocaleString()}</span>
+                        </div>
+                        <div className="bg-gray-50 p-2 rounded-xl">
+                          <span className="text-[8px] font-black text-gray-400 uppercase block">KM Mês Ant.</span>
+                          <span className="text-[11px] font-black text-gray-600">{v.kmLastMonth.toLocaleString()}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -505,6 +544,7 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                       <th className="px-6 py-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Placa</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Status Hoje</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Km Atual</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Km Mês / Ant.</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Justificativas</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Alertas</th>
                     </tr>
@@ -522,6 +562,12 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-gray-700">{v.currentKm || '---'}</td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="text-[11px] font-black text-blue-600">+{v.kmCurrentMonth.toLocaleString()}</span>
+                            <span className="text-[9px] font-bold text-gray-400">ANT: {v.kmLastMonth.toLocaleString()}</span>
+                          </div>
+                        </td>
                         <td className="px-6 py-4">
                           <span className={`font-black text-sm ${v.pendingDays > 0 ? 'text-red-500' : 'text-green-500'}`}>
                             {v.pendingDays} dias

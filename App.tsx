@@ -66,6 +66,7 @@ const App: React.FC = () => {
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   
+  const [showSplash, setShowSplash] = useState(true);
   const [view, setView] = useState<'checklist' | 'settings' | 'dashboard'>('checklist');
   const [activeTabInSettings, setActiveTabInSettings] = useState<'items' | 'images' | 'style' | 'about' | 'admin' | 'manual' | 'reports' | 'vehicles' | 'stations' | 'users' | 'report_editor' | 'cloud' | 'login'>('items');
   const [showDamageMap, setShowDamageMap] = useState(false);
@@ -144,7 +145,7 @@ const App: React.FC = () => {
   
   useEffect(() => {
     // Garantir que o usuário não permaneça em uma tela que não tem permissão
-    if (view === 'dashboard' && !hasPermission('reports')) {
+    if (view === 'dashboard' && !hasPermission('dashboard')) {
       setView('checklist');
     }
     if (view === 'settings' && !hasPermission('settings') && !['manual', 'about'].includes(activeTabInSettings)) {
@@ -747,28 +748,75 @@ const App: React.FC = () => {
       return false; // Todos os outros bloqueados para não logados
     }
     
+    // Telas Restritas Somente ao Super Usuário Cavalieri
+    if (['viewAudit', 'manageLogs', 'manageDatabase', 'manageReportEditor'].includes(screen as string)) {
+      return currentUser.username.toLowerCase() === 'cavalieri';
+    }
+
     // Usuário Mestre Cavalieri sempre tem acesso total
     if (currentUser.username.toLowerCase() === 'cavalieri') return true;
 
-    // Se há usuário logado, respeitamos estritamente suas permissões cadastradas
+    // Admin Geral continua como mestre do sistema para as demais telas
+    if (currentUser.permissions.admin) return true;
+
     if (screen === 'settings') {
-      return !!(currentUser.permissions.manageStations || 
-               currentUser.permissions.manageVehicles || 
-               currentUser.permissions.manageUsers || 
-               currentUser.permissions.manageItems || 
-               currentUser.permissions.manageImages || 
-               currentUser.permissions.manageStyle || 
-               currentUser.permissions.manageLogs || 
-               currentUser.permissions.manageDatabase || 
-               currentUser.permissions.settings ||
-               currentUser.permissions.admin);
+      const p = currentUser.permissions;
+      const hasAnyReportPerm = !!(
+        p.reports || 
+        p.reportNovelties || 
+        p.reportSynthetic || 
+        p.reportAnalytical || 
+        p.reportFull || 
+        p.reportMonthlyGrouped || 
+        p.reportHistory || 
+        p.reportDailyControl || 
+        p.reportDailyControlMotos || 
+        p.reportWeeklyLeves || 
+        p.reportWeeklyMotos || 
+        p.reportWeeklyAb || 
+        p.reportRetroactiveLogs || 
+        p.reportFinalMonthlyBook || 
+        p.reportFleetDashboard || 
+        p.reportKmMonthly
+      );
+
+      return !!(p.manageStations || 
+               p.manageVehicles || 
+               p.manageUsers || 
+               p.manageItems || 
+               p.manageImages || 
+               p.manageStyle || 
+               hasAnyReportPerm ||
+               p.settings);
+    }
+
+    if (screen === 'reports') {
+      const p = currentUser.permissions;
+      return !!(
+        p.reports || 
+        p.reportNovelties || 
+        p.reportSynthetic || 
+        p.reportAnalytical || 
+        p.reportFull || 
+        p.reportMonthlyGrouped || 
+        p.reportHistory || 
+        p.reportDailyControl || 
+        p.reportDailyControlMotos || 
+        p.reportWeeklyLeves || 
+        p.reportWeeklyMotos || 
+        p.reportWeeklyAb || 
+        p.reportRetroactiveLogs || 
+        p.reportFinalMonthlyBook || 
+        p.reportFleetDashboard || 
+        p.reportKmMonthly
+      );
+    }
+
+    if (screen === 'dashboard') {
+      return !!(currentUser.permissions.reports || currentUser.permissions.reportFleetDashboard);
     }
     
-    if (screen === 'admin') {
-      return !!(currentUser.permissions.viewAudit || currentUser.permissions.admin || currentUser.permissions.manageUsers);
-    }
-    
-    return !!currentUser.permissions[screen];
+    return !!currentUser.permissions[screen as keyof User['permissions']];
   };
 
   const handleExportModel = () => {
@@ -1080,15 +1128,57 @@ const App: React.FC = () => {
 
   return (
     <div 
-      className="min-h-screen pt-24 pb-4 px-4 sm:px-6 print:pt-0 print:pb-0 print:px-0 transition-all"
+      className="min-h-screen pt-24 pb-4 px-4 sm:px-6 print:pt-0 print:pb-0 print:px-0 transition-all flex flex-col"
       style={{ 
-        backgroundImage: view === 'checklist' && settings.homeBgUrl ? `url(${settings.homeBgUrl})` : 'none',
+        backgroundImage: (view === 'checklist' || !currentUser || showLoginModal || showSplash) && settings.homeBgUrl ? `url(${settings.homeBgUrl})` : 'none',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundAttachment: 'fixed'
       }}
     >
-      <div className="max-w-5xl mx-auto">
+      {showSplash && !currentUser && (
+        <div className="fixed inset-0 z-[500] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-1000">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+          <div className="relative space-y-12 max-w-lg w-full">
+            <div className="space-y-4">
+               {settings.headerLogoUrl1 && (
+                 <img src={settings.headerLogoUrl1} alt="Logo" className="h-32 mx-auto drop-shadow-2xl animate-pulse" />
+               )}
+               <div className="space-y-2">
+                 <h1 className="text-4xl md:text-6xl font-black text-white uppercase tracking-tighter drop-shadow-2xl">
+                   {settings.appName || 'Checklist Digital'}
+                 </h1>
+                 <div className="h-1 w-24 bg-blue-500 mx-auto rounded-full shadow-[0_0_20px_rgba(59,130,246,0.8)]" />
+                 <p className="text-blue-100/80 text-xs font-bold uppercase tracking-[0.3em] mt-4 drop-shadow-lg">
+                   {settings.appDescription || 'Sistema de Inspeção de Viaturas'}
+                 </p>
+               </div>
+            </div>
+
+            <button 
+              onClick={() => {
+                setShowSplash(false);
+                setShowLoginModal(true);
+              }}
+              className="group relative bg-white/10 backdrop-blur-md border border-white/20 text-white px-12 py-6 rounded-3xl text-sm font-black uppercase tracking-widest shadow-2xl hover:bg-white/20 transition-all active:scale-95 overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-blue-600/0 via-blue-600/20 to-blue-600/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+              <span className="relative flex items-center gap-3">
+                Carregar Sistema
+                <RefreshCw className="w-5 h-5 group-hover:rotate-180 transition-transform duration-700" />
+              </span>
+            </button>
+
+            <div className="pt-10">
+               <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">
+                 Desenvolvido por {settings.developedBy || 'Corpo de Bombeiros'}
+               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="max-w-5xl mx-auto w-full flex-1">
         {(isSaving || isLoggingIn) && (
         <div className="fixed inset-0 z-[400] bg-black/70 backdrop-blur-md flex items-center justify-center flex-col text-white gap-4">
           <Loader2 className="w-12 h-12 animate-spin text-blue-400" />
