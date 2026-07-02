@@ -65,6 +65,7 @@ import { Header } from './Header';
 import { Footer } from './Footer';
 
 import { Reports } from './Reports';
+import { compressImage } from '../services/imageUtils';
 import { VEHICLE_TYPES } from '../constants';
 
 interface AuditUser {
@@ -188,6 +189,7 @@ export const Settings: React.FC<SettingsProps> = ({
     currentKm: 0
   });
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
+  const [editingStationId, setEditingStationId] = useState<string | null>(null);
   const [newStation, setNewStation] = useState({ name: '', sgbId: '' });
   const [newSGB, setNewSGB] = useState({ name: '', gbId: '' });
   const [newGB, setNewGB] = useState({ name: '' });
@@ -789,9 +791,30 @@ export const Settings: React.FC<SettingsProps> = ({
 
   const handleAddStation = () => {
     if (!newStation.name.trim() || !newStation.sgbId) return;
-    const station = { id: crypto.randomUUID(), ...newStation };
-    setLocalSettings({ ...localSettings, stations: [...(localSettings.stations || []), station] });
+    
+    if (editingStationId) {
+      setLocalSettings({
+        ...localSettings,
+        stations: (localSettings.stations || []).map(s => 
+          s.id === editingStationId ? { ...newStation, id: editingStationId } : s
+        )
+      });
+      setEditingStationId(null);
+    } else {
+      const station = { id: crypto.randomUUID(), ...newStation };
+      setLocalSettings({ ...localSettings, stations: [...(localSettings.stations || []), station] });
+    }
     setNewStation({ name: '', sgbId: '' });
+  };
+
+  const handleStartEditStation = (s: any) => {
+    setNewStation({ name: s.name, sgbId: s.sgbId });
+    setEditingStationId(s.id);
+  };
+
+  const cancelEditStation = () => {
+    setNewStation({ name: '', sgbId: '' });
+    setEditingStationId(null);
   };
 
   const handleRemoveStation = (id: string) => {
@@ -854,7 +877,10 @@ export const Settings: React.FC<SettingsProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => setLocalSettings({ ...localSettings, [key]: reader.result as string });
+      reader.onloadend = async () => {
+        const compressed = await compressImage(reader.result as string, 400, 400, 0.7);
+        setLocalSettings({ ...localSettings, [key]: compressed });
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -1204,6 +1230,44 @@ export const Settings: React.FC<SettingsProps> = ({
                     </ul>
                   </div>
                 </section>
+
+                {/* 5. NOVAS FUNCIONALIDADES */}
+                <section className="space-y-4">
+                  <div className="flex items-center gap-3 border-b border-gray-100 pb-2">
+                    <div className="bg-green-600 text-white w-10 h-10 rounded-2xl flex items-center justify-center font-black shadow-lg shadow-green-100">05</div>
+                    <h4 className="text-sm font-black uppercase text-gray-900">Novas Funcionalidades</h4>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
+                      <h5 className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Gestão de Postos e SGB</h5>
+                      <p className="text-xs text-gray-600 leading-relaxed font-medium">Agora é possível editar postos existentes e vinculá-los a um Subgrupamento (SGB) específico, facilitando a organização hierárquica da frota.</p>
+                    </div>
+                    <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
+                      <h5 className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-1">Customização Visual</h5>
+                      <p className="text-xs text-gray-600 leading-relaxed font-medium">A tela inicial pode ser personalizada com uma imagem de fundo de sua escolha, permitindo uma identidade visual própria para cada unidade.</p>
+                    </div>
+                  </div>
+                </section>
+
+                {/* 6. RELATÓRIOS E ESTATÍSTICAS */}
+                <section className="space-y-4">
+                  <div className="flex items-center gap-3 border-b border-gray-100 pb-2">
+                    <div className="bg-indigo-600 text-white w-10 h-10 rounded-2xl flex items-center justify-center font-black shadow-lg shadow-indigo-100">06</div>
+                    <h4 className="text-sm font-black uppercase text-gray-900">Relatórios e Estatísticas</h4>
+                  </div>
+                  <div className="bg-gray-900 p-8 rounded-[2.5rem] text-white">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                       <div className="space-y-3">
+                          <h5 className="text-xs font-black uppercase text-indigo-400 tracking-widest flex items-center gap-2"><BarChart3 className="w-4 h-4"/> KM Rodado Mensal</h5>
+                          <p className="text-xs text-gray-300 font-medium leading-loose">Acesse relatórios detalhados de KM rodado por mês ou ano. Filtre por SGB, Posto ou visualize a frota completa com distribuição estatística por viatura.</p>
+                       </div>
+                       <div className="space-y-3">
+                          <h5 className="text-xs font-black uppercase text-indigo-400 tracking-widest flex items-center gap-2"><PieChart className="w-4 h-4"/> Comparativo Geral</h5>
+                          <p className="text-xs text-gray-300 font-medium leading-loose">Compare o desempenho entre postos e SGBs, identificando quais unidades e viaturas (UR, ABS, etc.) possuem maior volume de rodagem no período selecionado.</p>
+                       </div>
+                    </div>
+                  </div>
+                </section>
               </div>
             ) : (
               <div className="space-y-6">
@@ -1480,7 +1544,16 @@ export const Settings: React.FC<SettingsProps> = ({
                   })}
                 </select>
                 <input type="text" placeholder="Nome do Posto (Ex: PB Central)" value={newStation.name} onChange={e => setNewStation({...newStation, name: e.target.value.toUpperCase()})} className="md:col-span-1 border rounded-xl px-4 py-2 text-xs font-bold" />
-                <button onClick={handleAddStation} className="bg-blue-600 text-white p-2 rounded-xl hover:bg-blue-700 transition-all flex justify-center items-center"><Plus className="w-6 h-6" /></button>
+                <div className="flex gap-1">
+                  <button onClick={handleAddStation} className={`flex-1 ${editingStationId ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'} text-white p-2 rounded-xl transition-all flex justify-center items-center font-bold text-[10px] uppercase gap-1`}>
+                    {editingStationId ? <><Save className="w-4 h-4" /> Salvar</> : <><Plus className="w-6 h-6" /></>}
+                  </button>
+                  {editingStationId && (
+                    <button onClick={cancelEditStation} className="bg-gray-200 text-gray-600 p-2 rounded-xl hover:bg-gray-300 transition-all flex items-center justify-center font-bold text-[10px] uppercase">
+                      Sair
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="max-h-[300px] overflow-y-auto divide-y border rounded-2xl">
                 {(localSettings.stations || []).length === 0 && <p className="p-10 text-center text-xs text-gray-400 font-bold uppercase">Nenhum posto cadastrado</p>}
@@ -1493,7 +1566,10 @@ export const Settings: React.FC<SettingsProps> = ({
                         <span className="text-[11px] font-black text-gray-800 uppercase">{s.name}</span>
                         <span className="text-[9px] font-bold text-gray-400 uppercase">{gb?.name} / {sgb?.name}</span>
                       </div>
-                      <button onClick={() => handleRemoveStation(s.id)} className="text-red-400 hover:text-red-600 p-2"><Trash2 className="w-4 h-4" /></button>
+                      <div className="flex gap-1">
+                        <button onClick={() => handleStartEditStation(s)} className="text-blue-400 hover:text-blue-600 p-2 transition-all" title="Editar Posto"><Edit2 className="w-4 h-4" /></button>
+                        <button onClick={() => handleRemoveStation(s.id)} className="text-red-400 hover:text-red-600 p-2 transition-all" title="Excluir Posto"><Trash2 className="w-4 h-4" /></button>
+                      </div>
                     </div>
                   );
                 })}
@@ -2082,13 +2158,14 @@ export const Settings: React.FC<SettingsProps> = ({
                     }} className="p-1.5 bg-white border rounded-lg text-gray-400 hover:text-blue-500">
                       {localSettings.vehicleImageRatios?.[idx] === 'landscape' ? <RectangleVertical className="w-4 h-4" /> : <RectangleHorizontal className="w-4 h-4" />}
                     </button>
-                    <label className="p-1.5 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700"><Camera className="w-4 h-4" /><input type="file" accept="image/*" className="hidden" onChange={e => {
+                    <label className="p-1.5 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700"><Camera className="w-4 h-4" /><input type="file" accept="image/*" className="hidden" onChange={async e => {
                       const file = e.target.files?.[0];
                       if(file) {
                         const r = new FileReader();
-                        r.onloadend = () => {
+                        r.onloadend = async () => {
+                          const compressed = await compressImage(r.result as string, 800, 800, 0.5);
                           const ni = [...localSettings.vehicleImages];
-                          ni[idx] = r.result as string;
+                          ni[idx] = compressed;
                           setLocalSettings({...localSettings, vehicleImages: ni});
                         };
                         r.readAsDataURL(file);
@@ -2127,6 +2204,37 @@ export const Settings: React.FC<SettingsProps> = ({
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase text-gray-500">Cor Institucional</label>
                   <input type="color" value={localSettings.headerBgColor || '#b91c1c'} onChange={e => setLocalSettings({...localSettings, headerBgColor: e.target.value})} className="w-full h-11 p-1 bg-white border rounded-xl cursor-pointer" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-gray-500">Imagem de Fundo (Tela Inicial)</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={localSettings.homeBgUrl || ''} 
+                      onChange={e => setLocalSettings({...localSettings, homeBgUrl: e.target.value})} 
+                      className="flex-1 border rounded-xl p-3 text-xs font-bold" 
+                      placeholder="URL da Imagem (Ex: https://...)" 
+                    />
+                    <label className="bg-blue-600 text-white p-3 rounded-xl cursor-pointer hover:bg-blue-700 shadow-sm flex items-center justify-center">
+                      <Camera className="w-4 h-4" />
+                      <input type="file" className="hidden" onChange={async e => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = async () => {
+                            const compressed = await compressImage(reader.result as string, 1200, 800, 0.6);
+                            setLocalSettings({ ...localSettings, homeBgUrl: compressed });
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }} />
+                    </label>
+                    {localSettings.homeBgUrl && (
+                      <button onClick={() => setLocalSettings({...localSettings, homeBgUrl: ''})} className="bg-red-50 text-red-600 p-3 rounded-xl hover:bg-red-100 transition-all border border-red-100">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

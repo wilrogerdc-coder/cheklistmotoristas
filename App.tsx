@@ -32,6 +32,7 @@ import {
 } from './services/googleAuth';
 import { GoogleLoginButton } from './components/GoogleLoginButton';
 import { sheetsService } from './services/googleSheets';
+import { compressImage } from './services/imageUtils';
 import { FleetDashboard } from './components/FleetDashboard';
 import { 
   Printer, 
@@ -326,6 +327,7 @@ const App: React.FC = () => {
     };
 
     syncOnStartup();
+    fetchDashboardData();
   }, []);
 
   useEffect(() => {
@@ -397,42 +399,6 @@ const App: React.FC = () => {
   const themeColor = settings.headerBgColor || '#b91c1c';
   const printScale = settings.printScale || 1.0;
 
-  const compressImage = (base64Str: string): Promise<string> => {
-    return new Promise((resolve) => {
-      if (!base64Str || !base64Str.startsWith('data:image')) {
-        resolve(base64Str);
-        return;
-      }
-      const img = new Image();
-      img.src = base64Str;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 600;
-        const MAX_HEIGHT = 600;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.4));
-      };
-      img.onerror = () => resolve(base64Str);
-    });
-  };
 
   useEffect(() => {
     const filteredDefaults = settings.defaultItems.filter(i => {
@@ -615,6 +581,9 @@ const App: React.FC = () => {
     if (googleToken) {
       handleGoogleSync();
     }
+    
+    // Atualizar logs para garantir que a conferencia anterior esteja disponível
+    fetchDashboardData();
     
     setIsSaving(false);
     setView('checklist');
@@ -1110,8 +1079,17 @@ const App: React.FC = () => {
   const hasVehicleImages = data.vehicleImages.some(img => img && img !== "");
 
   return (
-    <div className="min-h-screen max-w-5xl mx-auto pt-24 pb-4 px-4 sm:px-6 print:pt-0 print:pb-0 print:px-0 transition-all">
-      {(isSaving || isLoggingIn) && (
+    <div 
+      className="min-h-screen pt-24 pb-4 px-4 sm:px-6 print:pt-0 print:pb-0 print:px-0 transition-all"
+      style={{ 
+        backgroundImage: view === 'checklist' && settings.homeBgUrl ? `url(${settings.homeBgUrl})` : 'none',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed'
+      }}
+    >
+      <div className="max-w-5xl mx-auto">
+        {(isSaving || isLoggingIn) && (
         <div className="fixed inset-0 z-[400] bg-black/70 backdrop-blur-md flex items-center justify-center flex-col text-white gap-4">
           <Loader2 className="w-12 h-12 animate-spin text-blue-400" />
           <div className="text-center">
@@ -1610,6 +1588,7 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

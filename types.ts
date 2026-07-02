@@ -153,6 +153,7 @@ export interface AppSettings {
   appName?: string;
   appDescription?: string;
   developedBy?: string;
+  homeBgUrl?: string;
 }
 
 export interface AuditLog {

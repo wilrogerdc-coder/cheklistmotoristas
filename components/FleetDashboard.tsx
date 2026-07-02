@@ -185,7 +185,13 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
     });
   }, [logs, settings, justifications, today, filterType, stationFilter]);
 
-  const stats = useMemo(() => {
+    const lastMonthStr = useMemo(() => {
+      const d = new Date(today.year, today.month - 1, 1);
+      d.setMonth(d.getMonth() - 1);
+      return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}`;
+    }, [today]);
+
+    const stats = useMemo(() => {
     const allRawVehicles = settings.vehicles || [];
     const filteredVehicles = allRawVehicles.filter(v => stationFilter === 'ALL' || v.station === stationFilter);
     
@@ -208,6 +214,38 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
       };
     });
 
+    // Calculate KM driven in last month
+    let totalKmLastMonth = 0;
+    filteredVehicles.forEach(v => {
+      const prefix = normalizeText(v.prefix);
+      const logsLastMonth = logs.filter(l => normalizeText(l.prefix) === prefix && parseDateToComps(l.date)?.y === parseInt(lastMonthStr.split('-')[0]) && parseDateToComps(l.date)?.m === parseInt(lastMonthStr.split('-')[1]));
+      
+      if (logsLastMonth.length > 0) {
+        const kms = logsLastMonth.map(l => parseInt(l.km)).filter(k => !isNaN(k));
+        if (kms.length > 0) {
+          const maxKm = Math.max(...kms);
+          // Find the last KM before last month
+          const logsBefore = logs.filter(l => {
+            const comps = parseDateToComps(l.date);
+            if (!comps) return false;
+            const logDate = new Date(comps.y, comps.m - 1, comps.d);
+            const startOfLastMonth = new Date(parseInt(lastMonthStr.split('-')[0]), parseInt(lastMonthStr.split('-')[1]) - 1, 1);
+            return normalizeText(l.prefix) === prefix && logDate < startOfLastMonth;
+          });
+          
+          if (logsBefore.length > 0) {
+            const kmsBefore = logsBefore.map(l => parseInt(l.km)).filter(k => !isNaN(k));
+            const lastKmBefore = Math.max(...kmsBefore);
+            totalKmLastMonth += (maxKm - lastKmBefore);
+          } else {
+            // If no logs before, use the difference between max and min in last month
+            const minKm = Math.min(...kms);
+            totalKmLastMonth += (maxKm - minKm);
+          }
+        }
+      }
+    });
+
     return {
       total: processedAll.length,
       ok: processedAll.filter(v => v.statusToday === "CONFERIDA" && !v.hasNovelty).length,
@@ -215,9 +253,10 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
       done: processedAll.filter(v => v.statusToday === "CONFERIDA").length,
       pending: processedAll.filter(v => v.statusToday === "PENDENTE").length,
       justification: processedAll.filter(v => v.pendingDays > 0).length,
-      compliance: processedAll.length > 0 ? Math.round(((processedAll.filter(v => v.statusToday === "CONFERIDA").length) / processedAll.length) * 100) : 0
+      compliance: processedAll.length > 0 ? Math.round(((processedAll.filter(v => v.statusToday === "CONFERIDA").length) / processedAll.length) * 100) : 0,
+      kmLastMonth: totalKmLastMonth
     };
-  }, [logs, settings, justifications, today, stationFilter]);
+  }, [logs, settings, justifications, today, stationFilter, lastMonthStr]);
 
   const handleAddAlert = () => {
     if (!selectedVehicleForAlerts || !newAlert.description) return;
@@ -370,6 +409,16 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
             <div className="flex items-end justify-between mt-1">
               <p className="text-3xl font-black text-indigo-900">{stats.justification}</p>
               <Activity className="w-4 h-4 text-indigo-400" />
+            </div>
+          </div>
+
+          <div 
+            className="p-6 rounded-3xl border-2 bg-amber-50 border-amber-100"
+          >
+            <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Km Rodado (Mês Ant.)</p>
+            <div className="flex items-end justify-between mt-1">
+              <p className="text-3xl font-black text-amber-900">{stats.kmLastMonth.toLocaleString()}</p>
+              <TrendingUp className="w-4 h-4 text-amber-400" />
             </div>
           </div>
         </div>

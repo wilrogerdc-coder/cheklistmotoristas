@@ -9,6 +9,8 @@ import {
   Printer,
   Calendar,
   Filter,
+  TrendingUp,
+  TrendingDown,
   ChevronRight,
   AlertCircle,
   BarChart,
@@ -58,6 +60,7 @@ type ReportType =
   | "retroactive_logs"
   | "final_monthly_book"
   | "fleet_dashboard"
+  | "km_monthly"
   | null;
 
 export const Reports: React.FC<ReportsProps> = ({
@@ -415,6 +418,7 @@ export const Reports: React.FC<ReportsProps> = ({
   );
   const [prefixSearch, setPrefixSearch] = useState<string>("");
   const [postoFilter, setPostoFilter] = useState<string>("");
+  const [sgbFilter, setSgbFilter] = useState<string>("");
   const [bookConfig, setBookConfig] = useState({
     includeDaily: true,
     includeJustifications: true,
@@ -842,7 +846,7 @@ export const Reports: React.FC<ReportsProps> = ({
 
       // Capturar o conteúdo interno para evitar cortes do container com scroll
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 1.5,
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff",
@@ -869,8 +873,13 @@ export const Reports: React.FC<ReportsProps> = ({
         },
       });
 
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
+      const imgData = canvas.toDataURL("image/jpeg", 0.6);
+      const pdf = new jsPDF({
+        orientation: "p",
+        unit: "mm",
+        format: "a4",
+        compress: true
+      });
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
 
@@ -881,14 +890,14 @@ export const Reports: React.FC<ReportsProps> = ({
       let position = 0;
 
       // Primeira página
-      pdf.addImage(imgData, "PNG", 0, position, pdfWidth, contentHeight);
+      pdf.addImage(imgData, "JPEG", 0, position, pdfWidth, contentHeight, undefined, 'FAST');
       heightLeft -= pdfHeight;
 
       // Páginas subsequentes
       while (heightLeft > 0) {
         position = heightLeft - contentHeight;
         pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, pdfWidth, contentHeight);
+        pdf.addImage(imgData, "JPEG", 0, position, pdfWidth, contentHeight, undefined, 'FAST');
         heightLeft -= pdfHeight;
       }
 
@@ -922,7 +931,7 @@ export const Reports: React.FC<ReportsProps> = ({
         element;
 
       const canvas = await html2canvas(contentElement, {
-        scale: 2,
+        scale: 1.5,
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff",
@@ -945,8 +954,13 @@ export const Reports: React.FC<ReportsProps> = ({
         },
       });
 
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
+      const imgData = canvas.toDataURL("image/jpeg", 0.6);
+      const pdf = new jsPDF({
+        orientation: "p",
+        unit: "mm",
+        format: "a4",
+        compress: true
+      });
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
 
@@ -957,14 +971,14 @@ export const Reports: React.FC<ReportsProps> = ({
       let position = 0;
 
       // Primeira página
-      pdf.addImage(imgData, "PNG", 0, position, pdfWidth, contentHeight);
+      pdf.addImage(imgData, "JPEG", 0, position, pdfWidth, contentHeight, undefined, 'FAST');
       heightLeft -= pdfHeight;
 
       // Páginas subsequentes
       while (heightLeft > 0) {
         position = heightLeft - contentHeight;
         pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, pdfWidth, contentHeight);
+        pdf.addImage(imgData, "JPEG", 0, position, pdfWidth, contentHeight, undefined, 'FAST');
         heightLeft -= pdfHeight;
       }
 
@@ -1028,23 +1042,35 @@ export const Reports: React.FC<ReportsProps> = ({
     return Array.from(stations).sort();
   }, [settings.stations, settings.vehicles]);
 
+  const uniqueSgbs = useMemo(() => {
+    const sgbs = new Set<string>();
+    if (settings.sgbs && settings.sgbs.length > 0) {
+      settings.sgbs.forEach((s) => {
+        if (s.name) sgbs.add(s.name);
+      });
+    }
+    settings.vehicles?.forEach((v) => {
+      if (v.sgb) sgbs.add(v.sgb);
+    });
+    return Array.from(sgbs).sort();
+  }, [settings.sgbs, settings.vehicles]);
+
   const visiblePrefixes = useMemo(() => {
     return uniquePrefixes.filter((prefix) => {
       const matchesSearch =
         !prefixSearch ||
         prefix.includes(normalizePrefix(prefixSearch));
 
-      if (!postoFilter) return matchesSearch;
       const vehicle = settings.vehicles?.find(
         (v) => normalizePrefix(v.prefix) === prefix,
       );
-      return (
-        matchesSearch &&
-        vehicle &&
-        normalizePrefix(vehicle.station) === normalizePrefix(postoFilter)
-      );
+
+      const matchesPosto = !postoFilter || (vehicle && normalizePrefix(vehicle.station) === normalizePrefix(postoFilter));
+      const matchesSgb = !sgbFilter || (vehicle && normalizePrefix(vehicle.sgb || "") === normalizePrefix(sgbFilter));
+
+      return matchesSearch && matchesPosto && matchesSgb;
     });
-  }, [uniquePrefixes, prefixSearch, postoFilter, settings.vehicles]);
+  }, [uniquePrefixes, prefixSearch, postoFilter, sgbFilter, settings.vehicles]);
 
   const uniqueMonths = useMemo(() => {
     const months = new Set<string>();
@@ -4119,6 +4145,397 @@ export const Reports: React.FC<ReportsProps> = ({
     );
   }
 
+  const renderKmMonthlyReport = () => {
+    const isYearly = !monthFilter;
+    const currentYear = monthFilter ? parseInt(monthFilter.split("-")[0]) : new Date().getFullYear();
+
+    // Filtra logs baseados no ano selecionado
+    const logsThisYear = logs.filter(l => {
+      const comps = parseDateToComponents(l.date);
+      return comps && comps.year === currentYear;
+    });
+
+    const prefixesToProcess = selectedPrefixes.size > 0 
+      ? Array.from(selectedPrefixes) 
+      : visiblePrefixes;
+
+    const kmData = prefixesToProcess.map(prefix => {
+      const vLogs = logsThisYear.filter(l => normalizePrefix(l.prefix) === normalizePrefix(prefix));
+      const vehicle = settings.vehicles?.find(veh => normalizePrefix(veh.prefix) === normalizePrefix(prefix));
+      
+      const monthlyStats = Array.from({ length: 12 }, (_, i) => {
+        const monthNum = i + 1;
+        const monthLogs = vLogs.filter(l => parseDateToComponents(l.date)?.month === monthNum);
+        
+        if (monthLogs.length === 0) return { month: monthNum, km: 0, count: 0, lastKm: 0 };
+        
+        const kms = monthLogs.map(l => parseInt(l.km)).filter(k => !isNaN(k));
+        const maxKm = Math.max(...kms);
+        
+        const logsBefore = logs.filter(l => {
+          if (normalizePrefix(l.prefix) !== normalizePrefix(prefix)) return false;
+          const comps = parseDateToComponents(l.date);
+          if (!comps) return false;
+          return comps.year < currentYear || (comps.year === currentYear && comps.month < monthNum);
+        });
+
+        let startKm = 0;
+        if (logsBefore.length > 0) {
+          const kmsBefore = logsBefore.map(l => parseInt(l.km)).filter(k => !isNaN(k));
+          startKm = Math.max(...kmsBefore);
+        } else {
+          startKm = Math.min(...kms);
+        }
+
+        return {
+          month: monthNum,
+          km: maxKm - startKm,
+          count: monthLogs.length,
+          lastKm: maxKm
+        };
+      });
+
+      const totalYearKm = monthlyStats.reduce((acc, m) => acc + m.km, 0);
+      
+      return {
+        prefix,
+        station: vehicle?.station || "SEM POSTO",
+        sgb: vehicle?.sgb || "SEM SGB",
+        monthlyStats,
+        totalYearKm,
+        avgMonthlyKm: totalYearKm / monthlyStats.filter(m => m.count > 0).length || 0
+      };
+    }).sort((a, b) => b.totalYearKm - a.totalYearKm);
+
+    const totalFleetKm = kmData.reduce((acc, v) => acc + v.totalYearKm, 0);
+
+    // Grouping by Station
+    const groupedKmData = kmData.reduce((acc, v) => {
+      if (!acc[v.station]) acc[v.station] = [];
+      acc[v.station].push(v);
+      return acc;
+    }, {} as Record<string, typeof kmData>);
+
+    const statsByStation = Object.entries(groupedKmData).map(([name, data]) => ({
+      name,
+      totalKm: data.reduce((sum, v) => sum + v.totalYearKm, 0),
+      count: data.length
+    })).sort((a, b) => b.totalKm - a.totalKm);
+
+    const statsBySgb = kmData.reduce((acc, v) => {
+      acc[v.sgb] = (acc[v.sgb] || 0) + v.totalYearKm;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const statsByType = kmData.reduce((acc, v) => {
+      const pref = v.prefix.toUpperCase();
+      let type = "OUTROS";
+      if (pref.startsWith("UR")) type = "UR (RESGATE)";
+      else if (pref.startsWith("ABS")) type = "ABS (BOMBA)";
+      else if (pref.startsWith("ASE")) type = "ASE (SALVAMENTO)";
+      else if (pref.startsWith("AT")) type = "AT (TANQUE)";
+      else if (pref.startsWith("MOTO") || pref.startsWith("ROC")) type = "MOTOCICLETA";
+      
+      acc[type] = (acc[type] || 0) + v.totalYearKm;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return (
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 max-w-7xl mx-auto p-4 sm:p-8" ref={reportRef}>
+        <Header 
+          title="Relatório de Quilometragem Rodada"
+          date={monthFilter ? getMonthLabel(monthFilter) : `ANO TODO (${currentYear})`}
+          onDateChange={() => {}}
+          logoUrl1={settings.headerLogoUrl1}
+          logoUrl2={settings.headerLogoUrl2}
+          bgColor={settings.headerBgColor}
+        />
+
+        <div className="flex flex-col md:flex-row gap-6 no-print">
+          <div className="flex-1 bg-white border rounded-[2rem] p-6 shadow-sm">
+             <div className="flex items-center gap-3 mb-6">
+                <div className="bg-amber-100 p-2 rounded-xl text-amber-600">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+                <div>
+                   <h3 className="text-sm font-black uppercase text-gray-900 leading-none">Filtros Avançados</h3>
+                   <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Refine a busca por unidade ou período</p>
+                </div>
+             </div>
+             
+             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-gray-400 uppercase ml-1">Referência</label>
+                  <select 
+                    value={monthFilter}
+                    onChange={(e) => setMonthFilter(e.target.value)}
+                    className="w-full bg-gray-50 border rounded-xl p-3 text-xs font-black uppercase outline-none focus:border-amber-600"
+                  >
+                    <option value="">ANO TODO ({currentYear})</option>
+                    {uniqueMonths.map(m => (
+                      <option key={m} value={m}>{getMonthLabel(m)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-gray-400 uppercase ml-1">Filtrar por SGB</label>
+                  <select 
+                    value={sgbFilter}
+                    onChange={(e) => setSgbFilter(e.target.value)}
+                    className="w-full bg-gray-50 border rounded-xl p-3 text-xs font-black uppercase outline-none focus:border-amber-600"
+                  >
+                    <option value="">TODOS OS SGBS</option>
+                    {uniqueSgbs.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-gray-400 uppercase ml-1">Filtrar por Posto</label>
+                  <select 
+                    value={postoFilter}
+                    onChange={(e) => setPostoFilter(e.target.value)}
+                    className="w-full bg-gray-50 border rounded-xl p-3 text-xs font-black uppercase outline-none focus:border-amber-600"
+                  >
+                    <option value="">TODOS OS POSTOS</option>
+                    {uniqueStations.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-gray-400 uppercase ml-1">Buscar Viatura</label>
+                  <div className="relative">
+                    <input 
+                      type="text"
+                      placeholder="PREFIXO..."
+                      value={prefixSearch}
+                      onChange={(e) => setPrefixSearch(e.target.value)}
+                      className="w-full bg-gray-50 border rounded-xl p-3 pl-10 text-xs font-black uppercase outline-none focus:border-amber-600"
+                    />
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3.5" />
+                  </div>
+                </div>
+             </div>
+          </div>
+
+          <div className="bg-gray-900 rounded-[2rem] p-6 text-white min-w-[300px] shadow-xl relative overflow-hidden">
+             <div className="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-amber-500/20 rounded-full blur-3xl"></div>
+             <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest relative z-10">Total da Frota Selecionada</p>
+             <div className="flex items-end justify-between mt-2 relative z-10">
+                <h4 className="text-4xl font-black tracking-tighter">{totalFleetKm.toLocaleString()} <span className="text-sm text-amber-400 uppercase">KM</span></h4>
+                <div className="bg-white/10 p-2 rounded-xl">
+                   <BarChart className="w-6 h-6" />
+                </div>
+             </div>
+             <div className="mt-4 pt-4 border-t border-white/10 flex justify-between items-center relative z-10">
+                <div className="text-[9px] font-bold text-gray-400 uppercase">Média Mensal: <span className="text-white">{(totalFleetKm / 12).toFixed(0)} KM</span></div>
+                <div className="text-[9px] font-bold text-gray-400 uppercase">Veículos: <span className="text-white">{kmData.length}</span></div>
+             </div>
+          </div>
+        </div>
+
+        <div className="bg-white border rounded-[2.5rem] overflow-hidden shadow-sm">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest pl-8">Viatura</th>
+                {monthFilter ? (
+                  <>
+                    <th className="p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest text-center">Registros</th>
+                    <th className="p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest text-right">KM Inicial</th>
+                    <th className="p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest text-right">KM Final</th>
+                    <th className="p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest text-right pr-8">KM Rodado</th>
+                  </>
+                ) : (
+                  <>
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <th key={i} className="p-2 text-[8px] font-black uppercase text-gray-400 text-center border-l">
+                        {getMonthLabel(`${currentYear}-${(i+1).toString().padStart(2, "0")}`).split('/')[0].substring(0, 3)}
+                      </th>
+                    ))}
+                    <th className="p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest text-right border-l bg-amber-50 pr-8">Total Ano</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {Object.entries(groupedKmData).map(([station, vehicles]) => (
+                <React.Fragment key={station}>
+                  <tr className="bg-gray-100/50">
+                    <td colSpan={monthFilter ? 5 : 14} className="p-2 pl-8 text-[10px] font-black uppercase text-amber-700 tracking-widest bg-amber-50/50 border-y">
+                      POSTO: {station} ({vehicles.length} Vtrs)
+                    </td>
+                  </tr>
+                  {vehicles.map((v, idx) => (
+                    <tr key={v.prefix} className="hover:bg-gray-50 transition-colors group">
+                      <td className="p-4 pl-8">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-[10px] font-black text-gray-400 group-hover:bg-amber-100 group-hover:text-amber-600 transition-colors">
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <span className="font-black text-sm uppercase text-gray-900">{v.prefix}</span>
+                            <p className="text-[8px] font-bold text-gray-400 uppercase">{v.sgb}</p>
+                          </div>
+                        </div>
+                      </td>
+                      
+                      {monthFilter ? (
+                        (() => {
+                          const mIndex = parseInt(monthFilter.split("-")[1]) - 1;
+                          const m = v.monthlyStats[mIndex];
+                          return (
+                            <>
+                              <td className="p-4 text-center font-bold text-gray-400 text-xs">{m.count} logs</td>
+                              <td className="p-4 text-right font-medium text-gray-500 text-sm">{(m.lastKm - m.km).toLocaleString()}</td>
+                              <td className="p-4 text-right font-medium text-gray-500 text-sm">{m.lastKm.toLocaleString()}</td>
+                              <td className="p-4 text-right font-black text-amber-600 text-sm pr-8">+{m.km.toLocaleString()}</td>
+                            </>
+                          );
+                        })()
+                      ) : (
+                        <>
+                          {v.monthlyStats.map((m, mIdx) => (
+                            <td key={mIdx} className="p-2 text-center text-[10px] font-bold border-l">
+                              {m.km > 0 ? (
+                                <span className="text-gray-900">{m.km.toLocaleString()}</span>
+                              ) : (
+                                <span className="text-gray-200">---</span>
+                              )}
+                            </td>
+                          ))}
+                          <td className="p-4 text-right font-black text-gray-900 text-sm border-l bg-amber-50/50 pr-8">
+                            {v.totalYearKm.toLocaleString()}
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                </React.Fragment>
+              ))}
+            </tbody>
+            {kmData.length > 0 && (
+              <tfoot className="bg-gray-900 text-white">
+                <tr>
+                  <td className="p-4 pl-8 font-black uppercase text-xs">Total Geral</td>
+                  {monthFilter ? (
+                    <>
+                      <td className="p-4 text-center font-bold text-[10px] text-gray-400">{kmData.reduce((acc, v) => acc + v.monthlyStats[parseInt(monthFilter.split("-")[1]) - 1].count, 0)} logs</td>
+                      <td className="p-4 text-right text-xs">---</td>
+                      <td className="p-4 text-right text-xs">---</td>
+                      <td className="p-4 text-right font-black text-amber-400 text-sm pr-8">{totalFleetKm.toLocaleString()} KM</td>
+                    </>
+                  ) : (
+                    <>
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <td key={i} className="p-2 text-center text-[10px] font-black border-l border-white/10">
+                          {kmData.reduce((acc, v) => acc + v.monthlyStats[i].km, 0).toLocaleString()}
+                        </td>
+                      ))}
+                      <td className="p-4 text-right font-black text-amber-400 text-sm border-l border-white/10 pr-8">
+                        {totalFleetKm.toLocaleString()}
+                      </td>
+                    </>
+                  )}
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+
+        {/* Dashboard Statistics section Enhanced */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+           {/* Distribuição por Posto */}
+           <div className="bg-white border rounded-[2.5rem] p-8 shadow-sm">
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                 <PieChart className="w-4 h-4" /> Por Posto (Top 5)
+              </h4>
+              <div className="space-y-4">
+                 {statsByStation.slice(0, 5).map(s => (
+                   <div key={s.name} className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-black uppercase">
+                         <span className="text-gray-900 truncate max-w-[120px]">{s.name}</span>
+                         <span className="text-amber-600">{((s.totalKm / (totalFleetKm || 1)) * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                         <div className="h-full bg-amber-500 rounded-full" style={{ width: `${(s.totalKm / (totalFleetKm || 1)) * 100}%` }}></div>
+                      </div>
+                   </div>
+                 ))}
+              </div>
+           </div>
+
+           {/* Distribuição por SGB */}
+           <div className="bg-white border rounded-[2.5rem] p-8 shadow-sm">
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                 <ShieldCheck className="w-4 h-4" /> Por SGB
+              </h4>
+              <div className="space-y-4">
+                 {Object.entries(statsBySgb).sort((a,b) => b[1] - a[1]).map(([name, km]) => (
+                   <div key={name} className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-black uppercase">
+                         <span className="text-gray-900">{name}</span>
+                         <span className="text-blue-600">{((km / (totalFleetKm || 1)) * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                         <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(km / (totalFleetKm || 1)) * 100}%` }}></div>
+                      </div>
+                   </div>
+                 ))}
+              </div>
+           </div>
+
+           {/* Comparação UR vs ABS */}
+           <div className="bg-white border rounded-[2.5rem] p-8 shadow-sm">
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                 <RefreshCw className="w-4 h-4" /> UR vs ABS vs Outros
+              </h4>
+              <div className="space-y-4">
+                 {Object.entries(statsByType).sort((a,b) => b[1] - a[1]).map(([name, km]) => (
+                   <div key={name} className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-black uppercase">
+                         <span className="text-gray-900">{name}</span>
+                         <span className="text-indigo-600">{km.toLocaleString()} KM</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                         <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${(km / (totalFleetKm || 1)) * 100}%` }}></div>
+                      </div>
+                   </div>
+                 ))}
+              </div>
+           </div>
+
+           {/* Top 3 Viaturas */}
+           <div className="bg-white border rounded-[2.5rem] p-8 shadow-sm">
+              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                 <TrendingUp className="w-4 h-4" /> Top 3 Viaturas
+              </h4>
+              <div className="space-y-3">
+                 {kmData.slice(0, 3).map((v, idx) => (
+                   <div key={v.prefix} className="flex items-center gap-3 bg-gray-50 p-2 rounded-2xl border border-gray-100">
+                      <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-xs font-black text-amber-700">
+                         {idx + 1}
+                      </div>
+                      <div>
+                         <p className="text-xs font-black text-gray-900 leading-none">{v.prefix}</p>
+                         <p className="text-[8px] font-bold text-gray-400 uppercase">{v.totalYearKm.toLocaleString()} KM</p>
+                      </div>
+                      {idx === 0 && <TrendingUp className="w-4 h-4 text-green-500 ml-auto" />}
+                   </div>
+                 ))}
+              </div>
+           </div>
+        </div>
+
+        <Footer />
+      </div>
+    );
+  };
+
   const renderFinalMonthlyBook = () => {
     const prefixesArray = Array.from(selectedPrefixes);
 
@@ -4869,6 +5286,7 @@ export const Reports: React.FC<ReportsProps> = ({
           {activeReport === "weekly_ab" &&
             renderWeeklyControlReport("AB/AÉREA")}
           {activeReport === "retroactive_logs" && renderRetroactiveLogsReport()}
+          {activeReport === "km_monthly" && renderKmMonthlyReport()}
           {activeReport === "final_monthly_book" && renderFinalMonthlyBook()}
           {/* Print Footer for Page Numbering */}
           <div className="hidden print:flex fixed bottom-0 left-0 right-0 h-8 items-center justify-between px-8 text-[8px] text-gray-400 border-t border-gray-100 bg-white">
@@ -5544,6 +5962,13 @@ export const Reports: React.FC<ReportsProps> = ({
               desc: "Checklists realizados fora do prazo regulamentar.",
               icon: Clock,
               color: "bg-blue-800",
+            },
+            {
+              id: "km_monthly",
+              title: "Relatório de KM Rodado",
+              desc: "Estatísticas de quilometragem rodada mensal ou anual.",
+              icon: TrendingUp,
+              color: "bg-amber-600",
             },
             {
               id: "final_monthly_book",
