@@ -133,6 +133,7 @@ export interface User {
   name: string;
   rank?: string;
   permissions: UserPermissions;
+  forcePasswordChange?: boolean;
 }
 
 export interface DocumentLink {

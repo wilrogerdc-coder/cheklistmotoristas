@@ -76,6 +76,7 @@ interface AuditUser {
   password?: string;
   rank?: string;
   permissions?: UserPermissions;
+  forcePasswordChange?: boolean;
   createdAt?: string;
 }
 
@@ -317,6 +318,7 @@ export const Settings: React.FC<SettingsProps> = ({
     password: '', 
     name: '', 
     rank: '',
+    forcePasswordChange: false,
     permissions: {
       checklist: true,
       reports: false,
@@ -540,6 +542,7 @@ export const Settings: React.FC<SettingsProps> = ({
       password: user.password,
       name: user.name,
       rank: user.rank,
+      forcePasswordChange: user.forcePasswordChange || false,
       permissions: {
         checklist: user.permissions?.checklist ?? true,
         reports: user.permissions?.reports ?? false,
@@ -570,6 +573,7 @@ export const Settings: React.FC<SettingsProps> = ({
       password: '', 
       name: '',
       rank: '',
+      forcePasswordChange: false,
       permissions: { 
         checklist: true, 
         reports: false, 
@@ -949,6 +953,7 @@ export const Settings: React.FC<SettingsProps> = ({
       password: localUserForm.password,
       name: localUserForm.name,
       rank: localUserForm.rank,
+      forcePasswordChange: localUserForm.forcePasswordChange,
       permissions: validatedPermissions
     };
     
@@ -962,6 +967,7 @@ export const Settings: React.FC<SettingsProps> = ({
       password: '', 
       name: '', 
       rank: '', 
+      forcePasswordChange: false,
       permissions: { checklist: true, reports: false, settings: false, admin: false } 
     });
     setIsAddingLocalUser(false);
@@ -1006,6 +1012,7 @@ export const Settings: React.FC<SettingsProps> = ({
           password: localUserForm.password!,
           name: localUserForm.name!,
           rank: localUserForm.rank,
+          forcePasswordChange: localUserForm.forcePasswordChange,
           permissions: validatedPermissions
         };
       }
@@ -1020,6 +1027,7 @@ export const Settings: React.FC<SettingsProps> = ({
       password: '', 
       name: '', 
       rank: '', 
+      forcePasswordChange: false,
       permissions: { checklist: true, reports: false, settings: false, admin: false } 
     });
     alert('Dados do usuário atualizados com sucesso!');
@@ -1033,6 +1041,7 @@ export const Settings: React.FC<SettingsProps> = ({
       password: u.password || '',
       name: u.name,
       rank: u.rank || '',
+      forcePasswordChange: u.forcePasswordChange || false,
       permissions: u.permissions
     });
     setIsAddingLocalUser(true); // Re-use the same form area
@@ -1869,6 +1878,17 @@ export const Settings: React.FC<SettingsProps> = ({
                       className="w-full bg-white border rounded-2xl p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500" 
                     />
                   </div>
+                  <div className="space-y-1 md:col-span-1 flex items-center pt-5">
+                    <label className="flex items-center gap-2 cursor-pointer p-3 bg-white border rounded-2xl w-full hover:bg-blue-100 transition-colors">
+                      <input 
+                        type="checkbox" 
+                        checked={localUserForm.forcePasswordChange || false} 
+                        onChange={e => setLocalUserForm({...localUserForm, forcePasswordChange: e.target.checked})} 
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                      />
+                      <span className="text-[10px] font-black uppercase text-gray-700">Trocar senha no próximo login</span>
+                    </label>
+                  </div>
                   <div className="space-y-6 border-t pt-4 md:col-span-4">
                     <h5 className="text-[10px] font-black text-gray-500 uppercase flex items-center gap-1">Configurações de Permissões</h5>
                     
@@ -2133,6 +2153,11 @@ export const Settings: React.FC<SettingsProps> = ({
                         {u.rank ? `${u.rank} ` : ''}{u.name || u.username}
                       </h4>
                       <p className="text-[10px] font-bold text-gray-400">@ {u.username} • Senha: ••••••••</p>
+                      {u.forcePasswordChange && (
+                        <div className="mt-1 flex items-center gap-1 text-[8px] font-black uppercase text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 w-fit">
+                          <Key className="w-2.5 h-2.5" /> Trocar senha pendente
+                        </div>
+                      )}
                     </div>
                   </div>
 
