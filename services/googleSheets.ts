@@ -40,7 +40,24 @@ export const sheetsService = {
 
     if (!res.ok) throw new Error('Failed to create spreadsheet');
     const data = await res.json();
-    return data.spreadsheetId;
+    const spreadsheetId = data.spreadsheetId;
+
+    // Add headers to sheets
+    const headers = {
+      'CONFIGURACOES': [['CHAVE', 'VALOR']],
+      'VIATURAS': [['ID', 'PREFIXO', 'PLACA', 'TIPO', 'POSTO', 'SGB', 'GB']],
+      'POSTOS': [['ID', 'NOME', 'SGB_ID']],
+      'SGBS': [['ID', 'NOME', 'GB_ID']],
+      'GBS': [['ID', 'NOME']],
+      'CONFERENTES': [['ID', 'NOME', 'USUARIO', 'RE', 'EMAIL']],
+      'CHECKLISTS': [['ID', 'DATA', 'PREFIXO', 'PLACA', 'TIPO', 'KM', 'CONFERENTE', 'STATUS_ITENS', 'STATUS_VTR', 'OBSERVACOES', 'FOTOS_DRIVE']]
+    };
+
+    for (const [sheetName, headerValues] of Object.entries(headers)) {
+      await updateSheet(accessToken, spreadsheetId, `${sheetName}!A1`, headerValues);
+    }
+
+    return spreadsheetId;
   },
 
   async syncSettings(accessToken: string, spreadsheetId: string, settings: AppSettings) {
@@ -101,17 +118,20 @@ export const sheetsService = {
 
   async appendLog(accessToken: string, spreadsheetId: string, log: LogEntry) {
     const values = [[
+      log.id,
       log.date,
       log.prefix,
       log.plate,
       log.checklistType,
       log.km,
+      log.inspector,
+      log.itemsStatus,
       log.vehicleStatus || '',
-      log.inspector || '',
-      log.id
+      log.generalObservation || '',
+      log.screenshot || ''
     ]];
     
-    await fetch(`${SHEETS_API_BASE}/${spreadsheetId}/values/CHECKLISTS!A1:H1:append?valueInputOption=USER_ENTERED`, {
+    await fetch(`${SHEETS_API_BASE}/${spreadsheetId}/values/CHECKLISTS!A1:K1:append?valueInputOption=USER_ENTERED`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,

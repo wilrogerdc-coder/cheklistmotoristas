@@ -1,7 +1,7 @@
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Loader2 } from 'lucide-react';
-import { GoogleUser, googleSignIn, fetchUserProfile } from '../services/googleAuth';
+import { googleSignIn } from '../services/googleAuth';
 
 interface GoogleLoginButtonProps {
   onSuccess: (profile: any, token: string) => void;
@@ -11,30 +11,19 @@ interface GoogleLoginButtonProps {
 
 export const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({ onSuccess, isLoggingIn, setIsLoggingIn }) => {
   
-  useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      // Validar origem se necessário, mas em dev origin varia
-      if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
-        const { token } = event.data;
-        setIsLoggingIn(true);
-        try {
-          const profile = await fetchUserProfile(token);
-          onSuccess(profile, token);
-        } catch (err) {
-          console.error("Erro ao obter perfil após login:", err);
-          alert("Falha ao obter dados do Google. Tente novamente.");
-        } finally {
-          setIsLoggingIn(false);
-        }
+  const handleLoginClick = async () => {
+    setIsLoggingIn(true);
+    try {
+      const result = await googleSignIn();
+      if (result) {
+        onSuccess(result.user, result.accessToken);
       }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [onSuccess, setIsLoggingIn]);
-
-  const handleLoginClick = () => {
-    googleSignIn();
+    } catch (err) {
+      console.error("Erro ao realizar login Google:", err);
+      alert("Falha ao conectar com Google. Tente novamente.");
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   return (

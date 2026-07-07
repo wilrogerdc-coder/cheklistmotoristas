@@ -550,8 +550,8 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {station.vehicles.map(v => (
-                      <tr key={v.prefix} className="hover:bg-gray-50 transition-colors">
+                    {station.vehicles.map((v, vIdx) => (
+                      <tr key={`${v.prefix}-${vIdx}`} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 font-black uppercase text-gray-900 cursor-pointer hover:text-blue-600 transition-colors" onClick={() => setSelectedVehicleForReport(v)}>{v.prefix}</td>
                         <td className="px-6 py-4 font-mono text-xs">{v.plate}</td>
                         <td className="px-6 py-4">

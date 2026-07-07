@@ -39,7 +39,7 @@ export const ChecklistTable: React.FC<ChecklistTableProps> = ({
 
             return (
             <div 
-              key={item.id} 
+              key={`${item.id}-${index}`} 
               className={`px-2 py-1 grid grid-cols-[38%_12%_auto_1fr] gap-2 items-center group transition-colors ${
                 index % 2 === 0 ? 'bg-white' : 'bg-gray-50/80'
               } hover:bg-blue-50/30`}

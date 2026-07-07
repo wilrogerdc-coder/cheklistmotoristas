@@ -28,6 +28,12 @@ import {
   Lock,
   ShieldCheck,
   Shield,
+  UserCheck,
+  ClipboardList,
+  Info,
+  Edit2,
+  Activity,
+  CheckCircle2
 } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -472,7 +478,7 @@ export const Reports: React.FC<ReportsProps> = ({
         const data = await response.json();
         if (Array.isArray(data)) {
           // Santize data keys to ensure consistency
-          const sanitized = data.map((item: any) => {
+          const sanitizedRaw = data.map((item: any) => {
             const getValueByKeys = (keys: string[]) => {
               for (const k of keys) {
                 if (item[k] !== undefined) return item[k];
@@ -516,6 +522,15 @@ export const Reports: React.FC<ReportsProps> = ({
               status
             };
           });
+
+          // Garantir que a lista sanitized não possua duplicatas de ID
+          const uniqueSanitized: Record<string, any> = {};
+          sanitizedRaw.forEach(item => {
+            if (!uniqueSanitized[item.id]) {
+              uniqueSanitized[item.id] = item;
+            }
+          });
+          const sanitized = Object.values(uniqueSanitized);
 
           setJustifications(prev => {
             const fetchedIds = new Set(sanitized.map(j => j.id));
@@ -3005,18 +3020,21 @@ export const Reports: React.FC<ReportsProps> = ({
 
     return (
       <div className="space-y-6">
-        <div className="flex justify-between items-center border-b pb-4 print:pb-2">
+        <div className="flex justify-between items-center border-b-4 border-red-600 pb-4 print:pb-2">
           <div>
-            <h3 className="text-xl font-black uppercase text-gray-900 text-red-600">
+            <h3 className="text-2xl font-black uppercase text-red-600 tracking-tighter">
               Relatório de Novidades Constatadas
             </h3>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-              Filtro:{" "}
-              {customPrefix || (selectedPrefixes.size > 0
-                ? Array.from(selectedPrefixes).join(", ")
-                : "Todas as Viaturas")}{" "}
-              | {monthFilter}
-            </p>
+            <div className="flex items-center gap-3 mt-1">
+              <span className="text-[10px] font-black bg-gray-900 text-white px-2 py-0.5 rounded">SISTEMA DE GESTÃO DE FROTA</span>
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                Filtro:{" "}
+                {customPrefix || (selectedPrefixes.size > 0
+                  ? Array.from(selectedPrefixes).join(", ")
+                  : "Todas as Viaturas")}{" "}
+                | {monthFilter || "Todo o Período"}
+              </p>
+            </div>
           </div>
           <div className="text-right hidden print:block">
             <p className="text-[10px] font-black uppercase text-gray-400">
@@ -3025,157 +3043,172 @@ export const Reports: React.FC<ReportsProps> = ({
           </div>
         </div>
 
-        {/* Resumo de Novidades */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 no-print">
-          <div className="bg-red-50 border-2 border-red-100 p-4 rounded-3xl flex items-center gap-4">
+        {/* Resumo Consolidado */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 no-print">
+          <div className="bg-red-50 border-2 border-red-100 p-5 rounded-[2rem] flex items-center gap-4 shadow-sm">
             <div className="bg-red-600 p-3 rounded-2xl text-white shadow-lg">
               <AlertCircle className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-[10px] font-black text-red-500 uppercase">
-                Viaturas com Novidades
-              </p>
-              <p className="text-xl font-black text-red-900">
-                {novelties.length}
-              </p>
+              <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">Viaturas com Alteração</p>
+              <p className="text-2xl font-black text-red-900">{novelties.length}</p>
             </div>
           </div>
-          <div className="bg-orange-50 border-2 border-orange-100 p-4 rounded-3xl flex items-center gap-4">
+          <div className="bg-orange-50 border-2 border-orange-100 p-5 rounded-[2rem] flex items-center gap-4 shadow-sm">
             <div className="bg-orange-600 p-3 rounded-2xl text-white shadow-lg">
               <List className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-[10px] font-black text-orange-500 uppercase">
-                Total de Itens "CN"
-              </p>
-              <p className="text-xl font-black text-orange-900">
-                {totalCnItems}
-              </p>
+              <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Total de Avarias</p>
+              <p className="text-2xl font-black text-orange-900">{totalCnItems}</p>
+            </div>
+          </div>
+          <div className="bg-blue-50 border-2 border-blue-100 p-5 rounded-[2rem] flex items-center gap-4 shadow-sm">
+            <div className="bg-blue-600 p-3 rounded-2xl text-white shadow-lg">
+              <Activity className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Período de Referência</p>
+              <p className="text-sm font-black text-blue-900 uppercase">{monthFilter || "Todo o Histórico"}</p>
             </div>
           </div>
         </div>
 
-        <div className="space-y-6">
-          {novelties.map((log, idx) => {
-            let cnItems: any[] = [];
-            try {
-              if (log.itemsDetail) {
-                const details = JSON.parse(log.itemsDetail);
-                cnItems = details.filter((d: any) => d.status === "CN");
-              }
-            } catch (e) {}
-
-            return (
-              <div
-                key={`${log.id}-${idx}`}
-                className="border-2 rounded-[2rem] p-6 space-y-4 bg-white print:break-inside-avoid shadow-sm hover:shadow-md transition-shadow"
-              >
-                <div className="flex justify-between items-start border-b border-gray-100 pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-red-600 text-white p-2 rounded-xl shadow-md">
-                      <AlertCircle className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-black uppercase text-gray-900 tracking-tight">
-                        {log.prefix}{" "}
-                        <span className="text-gray-400 font-bold ml-1">
-                          ({log.plate})
-                        </span>
-                      </h4>
-                      <p className="text-[9px] font-bold text-gray-400 uppercase">
-                        {new Date(log.date).toLocaleString("pt-BR")}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[9px] font-black uppercase text-red-600 bg-red-50 border border-red-100 px-3 py-1 rounded-full">
-                      {cnItems.length} Itens com Avaria
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-[11px]">
-                  <div>
-                    <p className="font-black uppercase text-gray-400 text-[8px] tracking-widest mb-1">
-                      Conferente
-                    </p>
-                    <p className="font-bold uppercase text-blue-700 bg-blue-50 px-3 py-1.5 rounded-xl inline-block">
-                      {getInspector(log)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-black uppercase text-gray-400 text-[8px] tracking-widest mb-1">
-                      Tipo de Checklist
-                    </p>
-                    <p className="font-bold text-gray-700 uppercase">
-                      {log.checklistType}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-black uppercase text-gray-400 text-[8px] tracking-widest mb-1">
-                      Odômetro
-                    </p>
-                    <p className="font-bold text-gray-700 uppercase">
-                      {log.km} KM
-                    </p>
-                  </div>
-                </div>
-
-                {cnItems.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="font-black uppercase text-gray-400 text-[8px] tracking-widest">
-                      Detalhamento de Itens "CN"
-                    </p>
-                    <div className="grid grid-cols-1 gap-2">
-                      {cnItems.map((d: any, i: number) => (
-                        <div
-                          key={i}
-                          className="flex flex-col sm:flex-row sm:items-center justify-between bg-red-50/30 p-3 rounded-2xl border border-red-100/50 gap-2"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                            <span className="font-black text-[10px] uppercase text-red-900">
-                              {d.label}
-                            </span>
-                          </div>
-                          <div className="flex-1 sm:text-right">
-                            <span className="text-[10px] text-red-600 font-medium italic bg-white px-3 py-1 rounded-lg border border-red-50 shadow-sm">
-                              {d.observation || "Sem observação específica"}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {log.generalObservation && (
-                  <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
-                    <p className="font-black uppercase text-gray-400 text-[8px] tracking-widest mb-2">
-                      Observações Gerais do Conferente
-                    </p>
-                    <p className="text-[11px] font-medium text-gray-700 italic leading-relaxed">
-                      "{log.generalObservation}"
-                    </p>
-                  </div>
-                )}
-
-                <div className="pt-2 flex justify-end">
-                  <p className="text-[8px] font-mono text-gray-300 uppercase">
-                    Protocolo: {log.id}
-                  </p>
-                </div>
+        <div className="space-y-8">
+          {novelties.length === 0 ? (
+            <div className="py-20 text-center space-y-4 bg-gray-50 rounded-[3rem] border-2 border-dashed">
+              <div className="bg-white w-16 h-16 rounded-full flex items-center justify-center mx-auto shadow-sm">
+                <CheckCircle2 className="w-8 h-8 text-green-500" />
               </div>
-            );
-          })}
-          {novelties.length === 0 && (
-            <div className="text-center py-32 bg-gray-50 rounded-[3rem] border-2 border-dashed border-gray-200">
-              <AlertCircle className="w-12 h-12 text-gray-200 mx-auto mb-4" />
-              <p className="text-xs font-black uppercase text-gray-400 tracking-widest">
-                Nenhuma novidade registrada no período e filtros selecionados.
-              </p>
+              <p className="text-xs font-black uppercase text-gray-400 tracking-[0.2em]">Nenhuma novidade constatada no período</p>
             </div>
+          ) : (
+            novelties.map((log, idx) => {
+              let cnItems: any[] = [];
+              try {
+                if (log.itemsDetail) {
+                  const details = JSON.parse(log.itemsDetail);
+                  cnItems = details.filter((d: any) => d.status === "CN");
+                }
+              } catch (e) {}
+
+              return (
+                <div
+                  key={`${log.id}-${idx}`}
+                  className="border-2 border-gray-100 rounded-[2.5rem] p-8 space-y-6 bg-white print:break-inside-avoid shadow-sm hover:shadow-md transition-all relative overflow-hidden"
+                >
+                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-red-600/10"></div>
+                  
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-50 pb-6">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-red-600 text-white w-12 h-12 rounded-2xl shadow-xl flex items-center justify-center shrink-0">
+                        <AlertCircle className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h4 className="text-xl font-black uppercase text-gray-900 tracking-tighter flex items-center gap-2">
+                          {log.prefix}
+                          <span className="text-gray-300 font-bold">|</span>
+                          <span className="text-blue-600">{log.plate}</span>
+                        </h4>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{new Date(log.date).toLocaleString("pt-BR")}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-[10px] font-black uppercase text-red-600 bg-red-50 border border-red-100 px-4 py-1.5 rounded-xl shadow-sm">
+                        {cnItems.length} Avarias
+                      </span>
+                      <span className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 border border-blue-100 px-4 py-1.5 rounded-xl shadow-sm">
+                        {log.km} KM
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-4">
+                      <div className="bg-gray-50/50 p-5 rounded-3xl border border-gray-100">
+                        <p className="font-black uppercase text-gray-400 text-[9px] tracking-widest mb-3 flex items-center gap-2">
+                          <UserCheck className="w-3.5 h-3.5 text-blue-500" /> Conferente Responsável
+                        </p>
+                        <p className="font-black uppercase text-blue-800 text-sm tracking-tight leading-none">
+                          {getInspector(log)}
+                        </p>
+                      </div>
+
+                      <div className="bg-gray-50/50 p-5 rounded-3xl border border-gray-100">
+                        <p className="font-black uppercase text-gray-400 text-[9px] tracking-widest mb-3 flex items-center gap-2">
+                          <ClipboardList className="w-3.5 h-3.5 text-indigo-500" /> Tipo de Inspeção
+                        </p>
+                        <p className="font-black uppercase text-indigo-800 text-sm tracking-tight leading-none">
+                          {log.checklistType}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      {log.generalObservation && (
+                        <div className="bg-orange-50/30 p-5 rounded-3xl border border-orange-100/50 relative h-full">
+                          <div className="absolute top-4 right-4 text-orange-200">
+                            <Info className="w-8 h-8 opacity-20" />
+                          </div>
+                          <p className="font-black uppercase text-orange-500 text-[9px] tracking-widest mb-3">Observações Gerais</p>
+                          <p className="text-xs font-bold text-orange-900 italic leading-relaxed">
+                            "{log.generalObservation}"
+                          </p>
+                        </div>
+                      )}
+                      {!log.generalObservation && (
+                        <div className="bg-gray-50/50 p-5 rounded-3xl border border-gray-100 border-dashed flex items-center justify-center h-full">
+                           <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest">Sem observações gerais</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {cnItems.length > 0 && (
+                    <div className="space-y-3 pt-2">
+                      <div className="flex items-center gap-2 mb-1">
+                         <div className="h-px flex-1 bg-red-100"></div>
+                         <p className="font-black uppercase text-red-500 text-[9px] tracking-[0.2em] px-4">Itens com Novidade</p>
+                         <div className="h-px flex-1 bg-red-100"></div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3">
+                        {cnItems.map((d: any, i: number) => (
+                          <div
+                            key={i}
+                            className="group flex flex-col sm:flex-row sm:items-center bg-white border-2 border-red-50 p-4 rounded-[1.5rem] hover:border-red-200 transition-all gap-4"
+                          >
+                            <div className="flex items-center gap-3 shrink-0">
+                              <div className="w-2 h-2 rounded-full bg-red-600 shadow-[0_0_8px_rgba(220,38,38,0.4)]"></div>
+                              <span className="font-black text-xs uppercase text-red-900 tracking-tight">
+                                {d.label}
+                              </span>
+                            </div>
+                            <div className="flex-1 bg-red-50/50 px-4 py-2.5 rounded-xl border border-red-100/50 group-hover:bg-red-50 transition-colors">
+                              <span className="text-[11px] text-red-700 font-bold italic leading-relaxed flex items-start gap-2">
+                                <Edit2 className="w-3 h-3 mt-0.5 shrink-0" />
+                                {d.observation || "Nenhuma observação específica registrada para este item."}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-6 border-t border-gray-50 flex items-center justify-between">
+                    <p className="text-[8px] font-mono text-gray-300 uppercase tracking-widest">
+                      ID PROTOCOLO: {log.id}
+                    </p>
+                    <div className="flex items-center gap-1.5 opacity-30">
+                       <ShieldCheck className="w-3 h-3 text-gray-400" />
+                       <span className="text-[8px] font-black text-gray-400 uppercase">Validado pelo Sistema</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
@@ -3367,8 +3400,8 @@ export const Reports: React.FC<ReportsProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y bg-white">
-              {listToRender.map((log) => (
-                <tr key={log.id} className="hover:bg-gray-50">
+              {listToRender.map((log, lIdx) => (
+                <tr key={`${log.id}-${lIdx}`} className="hover:bg-gray-50">
                   <td className="p-2 whitespace-nowrap">
                     {new Date(log.date).toLocaleString("pt-BR")}
                   </td>
@@ -3507,8 +3540,8 @@ export const Reports: React.FC<ReportsProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y bg-white">
-              {filteredByStatus.map((log) => (
-                <tr key={log.id} className="hover:bg-gray-50">
+              {filteredByStatus.map((log, sIdx) => (
+                <tr key={`${log.id}-${sIdx}`} className="hover:bg-gray-50">
                   {visibleColumns.date && (
                     <td className="p-2 whitespace-nowrap">
                       {new Date(log.date).toLocaleString("pt-BR")}
@@ -3646,9 +3679,9 @@ export const Reports: React.FC<ReportsProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y bg-white">
-                      {group.logs.map((log) => (
+                      {group.logs.map((log, lIdx) => (
                         <tr
-                          key={log.id}
+                          key={`${log.id}-${lIdx}`}
                           className="hover:bg-gray-50 transition-colors"
                         >
                           <td className="p-3 font-bold">
