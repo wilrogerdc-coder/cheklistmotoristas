@@ -173,8 +173,18 @@ function doPost(e) {
       let uSheet = sheet.getSheetByName('USUARIOS');
       if (!uSheet) uSheet = sheet.insertSheet('USUARIOS');
       uSheet.clear();
-      uSheet.appendRow(['ID', 'NOME', 'USUARIO', 'SENHA', 'RE', 'PERMISSOES', 'EMAIL']);
-      users.forEach(u => uSheet.appendRow([u.id, u.name || '', u.username, u.password || '', u.rank || '', JSON.stringify(u.permissions), u.email || '']));
+      uSheet.appendRow(['ID', 'NOME', 'USUARIO', 'SENHA', 'RE', 'PERMISSOES', 'EMAIL', 'FORCAR_TROCA_SENHA', 'DESATIVADO']);
+      users.forEach(u => uSheet.appendRow([
+        u.id, 
+        u.name || '', 
+        u.username, 
+        u.password || '', 
+        u.rank || '', 
+        JSON.stringify(u.permissions), 
+        u.email || '',
+        u.forcePasswordChange ? 'SIM' : 'NAO',
+        u.disabled ? 'SIM' : 'NAO'
+      ]));
 
       return ContentService.createTextOutput(JSON.stringify({ result: 'success', message: 'Sincronização completa' }))
         .setMimeType(ContentService.MimeType.JSON);
@@ -185,7 +195,7 @@ function doPost(e) {
       let uSheet = sheet.getSheetByName('USUARIOS');
       if (!uSheet) {
         uSheet = sheet.insertSheet('USUARIOS');
-        uSheet.appendRow(['ID', 'NOME', 'USUARIO', 'SENHA', 'RE', 'PERMISSOES', 'EMAIL']);
+        uSheet.appendRow(['ID', 'NOME', 'USUARIO', 'SENHA', 'RE', 'PERMISSOES', 'EMAIL', 'FORCAR_TROCA_SENHA', 'DESATIVADO']);
       }
       
       const rows = uSheet.getDataRange().getValues();
@@ -207,7 +217,9 @@ function doPost(e) {
         data.password || '',
         data.rank || '',
         typeof data.permissions === 'string' ? data.permissions : JSON.stringify(data.permissions || { checklist: true, reports: true, settings: true }),
-        data.email || ''
+        data.email || '',
+        data.forcePasswordChange ? 'SIM' : 'NAO',
+        data.disabled ? 'SIM' : 'NAO'
       ];
       
       if (rowIndex > 0) {
@@ -333,7 +345,9 @@ function doGet(e) {
           password: userArr['SENHA'],
           rank: userArr['RE'],
           permissions: permissions,
-          email: userArr['EMAIL'] || ''
+          email: userArr['EMAIL'] || '',
+          forcePasswordChange: String(userArr['FORCAR_TROCA_SENHA'] || '').toUpperCase() === 'SIM',
+          disabled: String(userArr['DESATIVADO'] || '').toUpperCase() === 'SIM'
         };
       });
 

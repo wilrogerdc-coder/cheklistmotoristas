@@ -77,6 +77,7 @@ interface AuditUser {
   rank?: string;
   permissions?: UserPermissions;
   forcePasswordChange?: boolean;
+  disabled?: boolean;
   createdAt?: string;
 }
 
