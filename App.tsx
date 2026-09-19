@@ -11,6 +11,7 @@ import {
   INITIAL_VEHICLE_RATIOS,
   FIXED_GOOGLE_SHEET_URL
 } from './constants';
+import { filterLogsLast30Days, filterLogsLast3Months, filterLogsBySelectedDates } from './services/dateFilterService';
 import { 
   LogEntry,
   InspectionData, 
@@ -32,7 +33,6 @@ import {
 } from './services/googleAuth';
 import { GoogleLoginButton } from './components/GoogleLoginButton';
 import { sheetsService } from './services/googleSheets';
-import { googleDriveService } from './services/googleDrive';
 import { compressImage } from './services/imageUtils';
 import { FleetDashboard } from './components/FleetDashboard';
 import { 
@@ -42,7 +42,7 @@ import {
   ChevronUp,
   ChevronDown,
   Loader2,
-  Map as MapIcon,
+  Map,
   EyeOff,
   Save,
   Upload,
@@ -58,8 +58,7 @@ import {
   BookOpen,
   Info,
   LayoutDashboard,
-  Mail,
-  Camera
+  Mail
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -73,9 +72,6 @@ const App: React.FC = () => {
   const [activeTabInSettings, setActiveTabInSettings] = useState<'items' | 'images' | 'style' | 'about' | 'admin' | 'manual' | 'reports' | 'vehicles' | 'stations' | 'users' | 'report_editor' | 'cloud' | 'login'>('items');
   const [showDamageMap, setShowDamageMap] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -84,11 +80,32 @@ const App: React.FC = () => {
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(null);
   const [googleToken, setGoogleToken] = useState<string | null>(null);
   const [printTimestamp, setPrintTimestamp] = useState<string>('');
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [justifications, setJustifications] = useState<Justification[]>([]);
+  const allLogsCacheRef = useRef<LogEntry[] | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>(() => {
+    try {
+      const cached = localStorage.getItem('checkviatura_cached_logs');
+      if (!cached) return [];
+      const parsed = JSON.parse(cached);
+      return Array.isArray(parsed) ? filterLogsLast3Months(parsed) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [justifications, setJustifications] = useState<Justification[]>(() => {
+    try {
+      const cached = localStorage.getItem('checkviatura_cached_justifications');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [lastSyncTime, setLastSyncTime] = useState<string>(() => {
+    return localStorage.getItem('checkviatura_last_sync') || '';
+  });
   const [isFetchingDashboardData, setIsFetchingDashboardData] = useState(false);
   const [reportConfig, setReportConfig] = useState<{ prefix: string; reportType?: any } | undefined>(undefined);
   const [lastChecklistData, setLastChecklistData] = useState<{ label: string; status: string; observation?: string }[] | undefined>(undefined);
+  const [recentConferenceSuccess, setRecentConferenceSuccess] = useState<{ prefix: string; message: string } | null>(null);
   const checklistRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -122,71 +139,74 @@ const App: React.FC = () => {
     setView('settings');
   };
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (options?: { forceAll?: boolean; targetMonth?: string; scope?: 'CURRENT_MONTH' | 'LAST_MONTH' | 'ALL' }) => {
     const rawUrl = settings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
     const targetUrl = rawUrl?.trim();
     if (!targetUrl) return;
 
+    // Se já temos os logs em cache e foi solicitado um filtro específico ou tudo
+    if (allLogsCacheRef.current && allLogsCacheRef.current.length > 0 && options) {
+      if (options.forceAll || options.scope === 'ALL') {
+        setLogs(allLogsCacheRef.current);
+        return;
+      }
+      if (options.targetMonth) {
+        setLogs(filterLogsBySelectedDates(allLogsCacheRef.current, { month: options.targetMonth }));
+        return;
+      }
+      if (options.scope === 'CURRENT_MONTH' || options.scope === 'LAST_MONTH') {
+        setLogs(filterLogsLast3Months(allLogsCacheRef.current));
+        return;
+      }
+    }
+
     setIsFetchingDashboardData(true);
     try {
       const [logsRes, justRes] = await Promise.all([
-        fetch(`${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getLogs`).then(r => r.ok ? r.json() : []),
-        fetch(`${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getJustifications`).then(r => r.ok ? r.json() : [])
+        fetch(`${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getLogs&_t=${Date.now()}`).then(r => r.ok ? r.json() : []),
+        fetch(`${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getJustifications&_t=${Date.now()}`).then(r => r.ok ? r.json() : [])
       ]);
-      
       if (Array.isArray(logsRes)) {
-        // Sanitizar IDs de logs para garantir que são únicos e válidos
-        const uniqueLogs: Record<string, any> = {};
-        logsRes.forEach((log: any) => {
-          const id = log.id || crypto.randomUUID();
-          if (!uniqueLogs[id]) {
-            uniqueLogs[id] = { ...log, id };
-          }
-        });
-        setLogs(Object.values(uniqueLogs));
+        const validLogs: LogEntry[] = logsRes.filter((l: any) => l && (l.id || l.ID));
+        allLogsCacheRef.current = validLogs;
+
+        let logsToSet: LogEntry[];
+        if (options?.forceAll || options?.scope === 'ALL') {
+          logsToSet = validLogs;
+        } else if (options?.targetMonth) {
+          logsToSet = filterLogsBySelectedDates(validLogs, { month: options.targetMonth });
+        } else {
+          // Padrão especialista de Alta Performance: Carrega os últimos 3 meses
+          // Garante precisão total para Mês Atual, Mês Anterior e KM contínuo
+          logsToSet = filterLogsLast3Months(validLogs);
+        }
+
+        setLogs(logsToSet);
+
+        try {
+          // Manter cache local dos últimos 3 meses para carregamento inicial instantâneo
+          const recentForStorage = filterLogsLast3Months(validLogs);
+          localStorage.setItem('checkviatura_cached_logs', JSON.stringify(recentForStorage.slice(0, 600)));
+        } catch (e) {
+          console.warn("Limite de quota do storage atingido ao salvar logs", e);
+        }
       }
-      
       if (Array.isArray(justRes)) {
-        // Sanitizar IDs de justificativas para garantir que são únicos e válidos
-        const uniqueJust: Record<string, any> = {};
-        justRes.forEach((just: any) => {
-          const id = just.id || crypto.randomUUID();
-          if (!uniqueJust[id]) {
-            uniqueJust[id] = { ...just, id };
-          }
-        });
-        setJustifications(Object.values(uniqueJust));
+        setJustifications(justRes);
+        try {
+          localStorage.setItem('checkviatura_cached_justifications', JSON.stringify(justRes));
+        } catch (e) {
+          console.warn("Limite de quota do storage atingido ao salvar justificativas", e);
+        }
       }
+      const syncTime = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastSyncTime(syncTime);
+      localStorage.setItem('checkviatura_last_sync', syncTime);
     } catch (err) {
       console.error("Erro ao buscar dados do dashboard:", err);
     } finally {
       setIsFetchingDashboardData(false);
     }
-  };
-
-  const checkDamageMapDoneThisMonth = (prefix: string) => {
-    if (!prefix) return null;
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-    
-    const log = logs.find(l => {
-      const logDate = new Date(l.date);
-      let hasDamage = false;
-      try {
-        if (l.fullData) {
-          const full = JSON.parse(l.fullData);
-          hasDamage = full.damages && full.damages.length > 0;
-        }
-      } catch (e) {}
-      
-      return l.prefix === prefix && 
-             logDate.getMonth() === currentMonth && 
-             logDate.getFullYear() === currentYear &&
-             hasDamage;
-    });
-    
-    return log ? new Date(log.date).toLocaleDateString('pt-BR') : null;
   };
 
   useEffect(() => {
@@ -223,7 +243,7 @@ const App: React.FC = () => {
         if (parsed.stations) {
           const uniqueStations: Record<string, any> = {};
           parsed.stations.forEach((s: any) => {
-            const id = s.id || crypto.randomUUID();
+            const id = s.id || Math.random().toString(36).substring(2, 11);
             if (!uniqueStations[id]) {
               uniqueStations[id] = { ...s, id };
             }
@@ -233,62 +253,12 @@ const App: React.FC = () => {
         if (parsed.vehicles) {
           const uniqueVehicles: Record<string, any> = {};
           parsed.vehicles.forEach((v: any) => {
-            const id = v.id || crypto.randomUUID();
+            const id = v.id || Math.random().toString(36).substring(2, 11);
             if (!uniqueVehicles[id]) {
               uniqueVehicles[id] = { ...v, id };
             }
           });
           parsed.vehicles = Object.values(uniqueVehicles);
-        }
-        if (parsed.users) {
-          const uniqueUsers: Record<string, any> = {};
-          parsed.users.forEach((u: any) => {
-            const id = u.id || crypto.randomUUID();
-            if (!uniqueUsers[id]) {
-              uniqueUsers[id] = { ...u, id };
-            }
-          });
-          parsed.users = Object.values(uniqueUsers);
-        }
-        if (parsed.defaultItems) {
-          const uniqueItems: Record<string, any> = {};
-          parsed.defaultItems.forEach((item: any) => {
-            const id = item.id || crypto.randomUUID();
-            if (!uniqueItems[id]) {
-              uniqueItems[id] = { ...item, id };
-            }
-          });
-          parsed.defaultItems = Object.values(uniqueItems);
-        }
-        if (parsed.gbs) {
-          const uniqueGbs: Record<string, any> = {};
-          parsed.gbs.forEach((gb: any) => {
-            const id = gb.id || crypto.randomUUID();
-            if (!uniqueGbs[id]) {
-              uniqueGbs[id] = { ...gb, id };
-            }
-          });
-          parsed.gbs = Object.values(uniqueGbs);
-        }
-        if (parsed.sgbs) {
-          const uniqueSgbs: Record<string, any> = {};
-          parsed.sgbs.forEach((sgb: any) => {
-            const id = sgb.id || crypto.randomUUID();
-            if (!uniqueSgbs[id]) {
-              uniqueSgbs[id] = { ...sgb, id };
-            }
-          });
-          parsed.sgbs = Object.values(uniqueSgbs);
-        }
-        if (parsed.documentLinks) {
-          const uniqueDocs: Record<string, any> = {};
-          parsed.documentLinks.forEach((doc: any) => {
-            const id = doc.id || crypto.randomUUID();
-            if (!uniqueDocs[id]) {
-              uniqueDocs[id] = { ...doc, id };
-            }
-          });
-          parsed.documentLinks = Object.values(uniqueDocs);
         }
 
         return parsed;
@@ -405,43 +375,17 @@ const App: React.FC = () => {
 
           // 2. Sincronizar Usuários
           if (Array.isArray(usersRes) && usersRes.length > 0) {
-            const uniqueUsers: Record<string, any> = {};
-            usersRes.forEach((u: any) => {
-              const id = u.id || crypto.randomUUID();
-              if (!uniqueUsers[id]) uniqueUsers[id] = { ...u, id };
-            });
-            updated.users = Object.values(uniqueUsers);
+            updated.users = usersRes;
           }
 
           // 3. Sincronizar Viaturas
           if (Array.isArray(vehiclesRes) && vehiclesRes.length > 0) {
-            const uniqueVehicles: Record<string, any> = {};
-            vehiclesRes.forEach((v: any) => {
-              const id = v.id || crypto.randomUUID();
-              if (!uniqueVehicles[id]) {
-                // Também sanitizar alertas internos
-                if (v.alerts && Array.isArray(v.alerts)) {
-                  const uniqueAlerts: Record<string, any> = {};
-                  v.alerts.forEach((a: any) => {
-                    const aid = a.id || crypto.randomUUID();
-                    if (!uniqueAlerts[aid]) uniqueAlerts[aid] = { ...a, id: aid };
-                  });
-                  v.alerts = Object.values(uniqueAlerts);
-                }
-                uniqueVehicles[id] = { ...v, id };
-              }
-            });
-            updated.vehicles = Object.values(uniqueVehicles);
+            updated.vehicles = vehiclesRes;
           }
 
           // 4. Sincronizar Postos
           if (Array.isArray(stationsRes) && stationsRes.length > 0) {
-            const uniqueStations: Record<string, any> = {};
-            stationsRes.forEach((s: any) => {
-              const id = s.id || crypto.randomUUID();
-              if (!uniqueStations[id]) uniqueStations[id] = { ...s, id };
-            });
-            updated.stations = Object.values(uniqueStations);
+            updated.stations = stationsRes;
           }
 
           localStorage.setItem('checkviatura_settings', JSON.stringify(updated));
@@ -581,41 +525,6 @@ const App: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleRemoveItemPhoto = (itemId: string, photoIndex: number) => {
-    if (!confirm('Deseja realmente remover esta foto?')) return;
-    setData(prev => ({
-      ...prev,
-      items: prev.items.map(item => 
-        item.id === itemId 
-          ? { ...item, photos: item.photos?.filter((_, idx) => idx !== photoIndex) }
-          : item
-      )
-    }));
-  };
-
-  const handleRemoveGeneralPhoto = (photoIndex: number) => {
-    if (!confirm('Deseja realmente remover esta foto geral?')) return;
-    setData(prev => ({
-      ...prev,
-      photos: prev.photos.filter((_, idx) => idx !== photoIndex)
-    }));
-  };
-
-  const handleGeneralPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const compressed = await compressImage(reader.result as string);
-      setData(prev => ({
-        ...prev,
-        photos: [...prev.photos, compressed]
-      }));
-    };
-    reader.readAsDataURL(file);
-  };
-
   const handleSaveToGeneralNotes = (id: string) => {
     const item = data.items.find(i => i.id === id);
     if (!item || !item.observation) return;
@@ -656,10 +565,8 @@ const App: React.FC = () => {
     setIsSyncing(true);
     try {
       const spreadsheetId = await sheetsService.ensureSpreadsheet(googleToken, settings);
-      const folderId = await googleDriveService.ensureFolder(googleToken, 'CheckViatura Pro - Fotos');
-      
-      if (spreadsheetId !== settings.googleSpreadsheetId || folderId !== settings.googleDriveFolderId) {
-        const newSettings = { ...settings, googleSpreadsheetId: spreadsheetId, googleDriveFolderId: folderId };
+      if (spreadsheetId !== settings.googleSpreadsheetId) {
+        const newSettings = { ...settings, googleSpreadsheetId: spreadsheetId };
         setSettings(newSettings);
         localStorage.setItem('checkviatura_settings', JSON.stringify(newSettings));
       }
@@ -871,22 +778,6 @@ const App: React.FC = () => {
       }
 
       if (user) {
-        if (user.disabled) {
-          alert('Este usuário foi desativado. Entre em contato com o administrador.');
-          setIsLoggingIn(false);
-          return;
-        }
-
-        if (user.forcePasswordChange) {
-          setCurrentUser(user);
-          setShowChangePasswordModal(true);
-          setShowLoginModal(false);
-          setLoginUsername('');
-          setLoginPassword('');
-          setIsLoggingIn(false);
-          return;
-        }
-
         // Limpar estados de interface IMEDIATAMENTE
         setCurrentUser(user);
         setShowLoginModal(false);
@@ -903,47 +794,6 @@ const App: React.FC = () => {
     } catch (err) {
       console.error("Erro no processo de login:", err);
       alert("Erro ao conectar com o servidor de usuários. Verifique sua conexão.");
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const handleChangePassword = async () => {
-    if (!newPassword || newPassword !== confirmNewPassword) {
-      alert("As senhas não coincidem ou estão vazias.");
-      return;
-    }
-
-    if (!currentUser) return;
-
-    try {
-      setIsLoggingIn(true);
-      const updatedUser = { ...currentUser, password: newPassword, forcePasswordChange: false };
-      
-      const targetUrl = settings.googleSheetUrl?.trim() || FIXED_GOOGLE_SHEET_URL;
-      const res = await fetch(targetUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'saveUser', ...updatedUser })
-      });
-
-      // Update local settings too
-      const updatedSettings = {
-        ...settings,
-        users: settings.users?.map(u => u.username === updatedUser.username ? updatedUser : u)
-      };
-      setSettings(updatedSettings);
-      localStorage.setItem('checkviatura_settings', JSON.stringify(updatedSettings));
-      
-      setCurrentUser(updatedUser);
-      setShowChangePasswordModal(false);
-      setNewPassword('');
-      setConfirmNewPassword('');
-      alert("Senha alterada com sucesso!");
-      saveAuditLog('ALTERACAO_SENHA', `Usuário ${currentUser.username} alterou sua senha obrigatoriamente`);
-    } catch (err) {
-      console.error("Erro ao alterar senha:", err);
-      alert("Erro ao salvar nova senha. Tente novamente.");
     } finally {
       setIsLoggingIn(false);
     }
@@ -966,7 +816,7 @@ const App: React.FC = () => {
   const hasPermission = (screen: keyof User['permissions']) => {
     // Se não há usuário logado (Visitante), restringimos menus críticos
     if (!currentUser) {
-      if (screen === 'checklist') return true; // Permitido para preencher checklist
+      if (screen === 'checklist' || screen === 'dashboard') return true; // Permitido para preencher checklist e visualizar dashboard
       return false; // Todos os outros bloqueados para não logados
     }
     
@@ -1035,7 +885,7 @@ const App: React.FC = () => {
     }
 
     if (screen === 'dashboard') {
-      return !!(currentUser.permissions.reports || currentUser.permissions.reportFleetDashboard);
+      return true; // Dashboard de prontidão é tela de consulta operacional acessível a todos
     }
     
     return !!currentUser.permissions[screen as keyof User['permissions']];
@@ -1124,6 +974,49 @@ const App: React.FC = () => {
       screenshot: "" 
     };
 
+    // Atualização instantânea e otimista do estado local de logs para exibição sem delay no Dashboard
+    const instantLogEntry: LogEntry = {
+      id: logData.id,
+      date: logData.date,
+      prefix: logData.prefix,
+      plate: logData.plate,
+      checklistType: logData.checklistType,
+      km: logData.km,
+      inspector: logData.inspector,
+      itemsStatus: logData.itemsStatus,
+      vehicleStatus: logData.vehicleStatus,
+      itemsDetail: logData.itemsDetail,
+      fullData: logData.fullData,
+      generalObservation: logData.generalObservation,
+      screenshot: ""
+    };
+
+    setLogs(prev => {
+      const filtered = prev.filter(l => l.id !== instantLogEntry.id);
+      const updated = [instantLogEntry, ...filtered];
+      try {
+        localStorage.setItem('checkviatura_cached_logs', JSON.stringify(updated.slice(0, 1000)));
+      } catch (e) {
+        console.warn("Storage quota:", e);
+      }
+      return updated;
+    });
+
+    // Atualizar KM da viatura localmente de imediato
+    if (data.prefix && data.km) {
+      const updatedVehicles = (settings.vehicles || []).map(v => {
+        if (v.prefix === data.prefix) {
+          return { ...v, currentKm: Number(data.km) };
+        }
+        return v;
+      });
+      const updatedSettings = { ...settings, vehicles: updatedVehicles };
+      setSettings(updatedSettings);
+      try {
+        localStorage.setItem('checkviatura_settings', JSON.stringify(updatedSettings));
+      } catch (e) {}
+    }
+
     if (logData.fullData.length > 45000) {
       console.warn("Payload grande detectado. Otimizando dados...");
       const optimizedMirror = { ...dataForMirror, vehicleImages: [] };
@@ -1203,6 +1096,31 @@ const App: React.FC = () => {
     });
   };
 
+  const resetChecklistForm = () => {
+    const initialFreq = 'Diário';
+    const filteredDefaults = (settings.defaultItems || []).filter(i => 
+      i.frequency === initialFreq || i.frequency === 'Ambos'
+    );
+    
+    setData({
+      id: crypto.randomUUID(),
+      date: new Date().toISOString().split('T')[0],
+      prefix: '',
+      plate: '',
+      checklistType: initialFreq,
+      km: '',
+      vehicleStatus: 'OPERANDO',
+      items: filteredDefaults.map(i => ({ ...i, status: 'PENDING' as ItemStatus, photos: [] })),
+      damages: [],
+      photos: [],
+      vehicleImages: [...(settings.vehicleImages || [])],
+      vehicleImageRatios: [...(settings.vehicleImageRatios || INITIAL_VEHICLE_RATIOS)],
+      generalObservation: '',
+      signatureName: currentUser ? (currentUser.name || currentUser.username || '') : (googleUser ? (googleUser.name || '') : ''),
+      signatureRank: currentUser?.rank || ''
+    });
+  };
+
   const handleVisualizarPdf = async () => {
     if (data.items.some(item => item.status === 'PENDING')) {
       alert("BLOQUEIO: Existem itens pendentes.");
@@ -1275,53 +1193,38 @@ const App: React.FC = () => {
     setShowExportMenu(false);
     setIsSaving(true);
     
+    const finishedPrefix = String(data.prefix || '').trim();
+    const finishedCycle = data.checklistType || 'Diário';
+
     try {
       await saveLogToGoogleSheets();
-      await saveAuditLog('CHECKLIST_FINALIZADO', `Checklist ${data.checklistType} finalizado para viatura ${data.prefix}`);
+      await saveAuditLog('CHECKLIST_FINALIZADO', `Checklist ${finishedCycle} finalizado para viatura ${finishedPrefix}`);
       
-      // Se tiver token do Google Real, salva também na planilha real e faz upload de fotos
+      // Se tiver token do Google Real, salva também na planilha real
       if (googleToken && settings.googleSpreadsheetId) {
-        let photoLinks: any[] = [];
-        if (settings.googleDriveFolderId) {
-          try {
-            const photoUploads: { data: string; name: string }[] = [];
-            data.items.forEach(item => {
-              item.photos?.forEach((photo, idx) => {
-                photoUploads.push({ data: photo, name: `VTR_${data.prefix}_${item.label}_${idx}.jpg` });
-              });
-            });
-            data.photos.forEach((photo, idx) => {
-              photoUploads.push({ data: photo, name: `VTR_${data.prefix}_GERAL_${idx}.jpg` });
-            });
-
-            if (photoUploads.length > 0) {
-              photoLinks = await Promise.all(
-                photoUploads.map(p => googleDriveService.uploadFile(googleToken, p.data, p.name, 'image/jpeg', settings.googleDriveFolderId))
-              );
-            }
-          } catch (driveErr) {
-            console.warn("Erro ao fazer upload para o Drive:", driveErr);
-          }
-        }
-
         const logToAppend: LogEntry = {
-          id: data.id,
+          ...data,
           date: new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }),
-          prefix: data.prefix,
-          plate: data.plate,
-          checklistType: data.checklistType,
-          km: data.km,
-          inspector: `${data.signatureRank || ''} ${data.signatureName || ''}`.trim(),
-          vehicleStatus: data.vehicleStatus || 'OPERANDO',
-          itemsStatus: `${data.items.filter(i => i.status === 'OK').length} OK / ${data.items.filter(i => i.status === 'CN').length} CN`,
-          generalObservation: data.generalObservation || '',
-          screenshot: photoLinks.join(', ') // Salva links das fotos no campo de screenshot para o Sheets real
+          signatureRank: data.signatureRank || '',
+          signatureName: data.signatureName || ''
         } as any;
         await sheetsService.appendLog(googleToken, settings.googleSpreadsheetId, logToAppend);
       }
       
-      // Atualizar dados do dashboard em background
-      fetchDashboardData();
+      // Atualizar dados do dashboard em tempo real
+      await fetchDashboardData();
+
+      // Definir feedback de sucesso para exibição no Dashboard
+      setRecentConferenceSuccess({
+        prefix: finishedPrefix,
+        message: `Checklist ${finishedCycle} da viatura ${finishedPrefix} finalizado com sucesso! Todos os indicadores foram atualizados.`
+      });
+
+      // Resetar formulário do checklist para a próxima conferência
+      resetChecklistForm();
+
+      // Exibir imediatamente a tela de dashboard
+      setView('dashboard');
       
     } catch (err) {
       console.error("Erro no processo de finalização:", err);
@@ -1329,11 +1232,6 @@ const App: React.FC = () => {
     } finally {
       setIsSaving(false);
     }
-    
-    // Pequeno atraso para garantir que o loader sumiu antes de abrir o print
-    setTimeout(() => {
-      window.print();
-    }, 300);
   };
 
   const handleOnlySave = async () => {
@@ -1364,16 +1262,30 @@ const App: React.FC = () => {
       return;
     }
 
-    // setShowExportMenu(false); // Mantém aberto para permitir gerar PDF após gravar
     setIsSaving(true);
-    await saveLogToGoogleSheets();
-    await saveAuditLog('CHECKLIST_SALVO', `Checklist ${data.checklistType} salvo manualmente para viatura ${data.prefix}`);
-    
-    // Atualizar dashboard
-    await fetchDashboardData();
-    
-    setIsSaving(false);
-    alert("Checklist salvo com sucesso! Agora você pode gerar o PDF se desejar.");
+    const finishedPrefix = String(data.prefix || '').trim();
+    const finishedCycle = data.checklistType || 'Diário';
+
+    try {
+      await saveLogToGoogleSheets();
+      await saveAuditLog('CHECKLIST_SALVO', `Checklist ${finishedCycle} salvo manualmente para viatura ${finishedPrefix}`);
+      
+      // Atualizar dashboard
+      await fetchDashboardData();
+
+      setRecentConferenceSuccess({
+        prefix: finishedPrefix,
+        message: `Checklist ${finishedCycle} da viatura ${finishedPrefix} salvo com sucesso! Indicadores atualizados.`
+      });
+
+      resetChecklistForm();
+      setView('dashboard');
+    } catch (err) {
+      console.error("Erro ao salvar:", err);
+      alert("Erro ao salvar dados.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const hasVehicleImages = data.vehicleImages.some(img => img && img !== "");
@@ -1480,7 +1392,6 @@ const App: React.FC = () => {
               connectionStatus={connectionStatus}
               onCheckConnection={handleCheckConnection}
               reportConfig={reportConfig}
-              logs={logs}
             />
           ) : view === 'dashboard' ? (
             <FleetDashboard 
@@ -1489,10 +1400,14 @@ const App: React.FC = () => {
               justifications={justifications}
               onRefresh={fetchDashboardData}
               isLoading={isFetchingDashboardData}
+              lastSyncTime={lastSyncTime}
               onUpdateVehicles={(updatedVehicles) => handleSaveSettings({ ...settings, vehicles: updatedVehicles })}
               onViewReport={handleViewReport}
               onViewWeekly={handleViewWeekly}
               onViewMirror={handleViewMirror}
+              recentSuccessMessage={recentConferenceSuccess?.message}
+              lastCompletedPrefix={recentConferenceSuccess?.prefix}
+              onClearSuccessMessage={() => setRecentConferenceSuccess(null)}
             />
           ) : (!currentUser && !googleUser) ? (
             <div className="flex flex-col items-center justify-center py-20 px-6 text-center space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -1712,14 +1627,7 @@ const App: React.FC = () => {
 
               {/* Seção de Observações Gerais - Editável (no-print) */}
               <section className="space-y-1 no-print">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block">Observações Gerais</label>
-                  <label className="cursor-pointer p-1 text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1 text-[10px] font-bold uppercase">
-                    <Camera className="w-3.5 h-3.5" />
-                    Adicionar Foto
-                    <input type="file" accept="image/*" className="hidden" onChange={handleGeneralPhotoUpload} />
-                  </label>
-                </div>
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block">Observações Gerais</label>
                 <textarea 
                   rows={3} 
                   value={data.generalObservation} 
@@ -1753,24 +1661,12 @@ const App: React.FC = () => {
                     <div key={`${item.id}-${idx}`} className="relative aspect-square border rounded-lg overflow-hidden bg-gray-100 shadow-sm break-inside-avoid">
                       <img src={p} className="w-full h-full object-contain" alt={item.label} referrerPolicy="no-referrer" />
                       <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] p-1 font-bold truncate">ITEM: {item.label}</div>
-                      <button 
-                        onClick={() => handleRemoveItemPhoto(item.id, idx)}
-                        className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 shadow-md hover:bg-red-700 transition-colors no-print"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
                     </div>
                   )))}
                   {data.photos.map((p, i) => (
                     <div key={`g-${i}`} className="relative aspect-square border rounded-lg overflow-hidden bg-gray-100 shadow-sm break-inside-avoid">
                       <img src={p} className="w-full h-full object-contain" alt="Geral" referrerPolicy="no-referrer" />
                       <div className="absolute bottom-0 left-0 right-0 bg-blue-600/80 text-white text-[8px] p-1 font-bold uppercase text-center">Evidência Geral</div>
-                      <button 
-                        onClick={() => handleRemoveGeneralPhoto(i)}
-                        className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 shadow-md hover:bg-red-700 transition-colors no-print"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
                     </div>
                   ))}
                 </div>
@@ -1812,7 +1708,7 @@ const App: React.FC = () => {
         </div>
 
         {/* 2. Dashboard */}
-        {hasPermission('reports') && (
+        {hasPermission('dashboard') && (
           <button 
             onClick={() => setView('dashboard')} 
             className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all shrink-0 ${view === 'dashboard' ? 'bg-blue-50 text-blue-600 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
@@ -1837,20 +1733,11 @@ const App: React.FC = () => {
             <div className="w-px h-6 bg-gray-200 mx-0.5"></div>
             
             <button 
-              onClick={() => {
-                if (!showDamageMap) {
-                  const doneDate = checkDamageMapDoneThisMonth(data.prefix);
-                  if (doneDate) {
-                    alert(`FOTO DO MAPA JÁ REALIZADA: O mapa de danos para esta viatura (${data.prefix}) já foi realizado este mês no dia ${doneDate}. A norma permite apenas um registro mensal de mapa de danos.`);
-                    return;
-                  }
-                }
-                setShowDamageMap(!showDamageMap);
-              }} 
+              onClick={() => setShowDamageMap(!showDamageMap)} 
               className={`flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded-xl transition-colors shrink-0 ${showDamageMap ? 'text-orange-600 bg-orange-50' : 'text-gray-400'}`}
               title="Mapa de Avarias"
             >
-              {showDamageMap ? <MapIcon className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+              {showDamageMap ? <Map className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
               <span className="text-xs font-bold hidden md:inline">Avarias</span>
             </button>
           </>
@@ -1898,47 +1785,6 @@ const App: React.FC = () => {
           )}
         </div>
       </div>
-
-      {showChangePasswordModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-300">
-            <div className="bg-orange-600 p-6 text-white text-center">
-              <Lock className="w-12 h-12 mx-auto mb-4" />
-              <h3 className="text-xl font-black uppercase tracking-tighter">Troca de Senha Obrigatória</h3>
-              <p className="text-xs font-bold opacity-90 mt-2">Para sua segurança, você deve alterar sua senha no primeiro acesso.</p>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Nova Senha</label>
-                <input 
-                  type="password" 
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-orange-500 outline-none transition-all"
-                  placeholder="••••••••"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Confirmar Nova Senha</label>
-                <input 
-                  type="password" 
-                  value={confirmNewPassword}
-                  onChange={(e) => setConfirmNewPassword(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-orange-500 outline-none transition-all"
-                  placeholder="••••••••"
-                />
-              </div>
-              <button 
-                onClick={handleChangePassword}
-                disabled={isLoggingIn}
-                className="w-full bg-orange-600 hover:bg-orange-700 text-white font-black uppercase tracking-widest py-3 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50"
-              >
-                {isLoggingIn ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Alterar Senha"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showLoginModal && (
         <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">

@@ -4,6 +4,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { GoogleLoginButton } from './GoogleLoginButton';
 import { AppSettings, ChecklistItem, ItemFrequency, AspectRatio, LogEntry, User, UserPermissions } from '../types';
 import { FIXED_GOOGLE_SHEET_URL } from '../constants';
+import { filterLogsLast30Days, filterLogsBySelectedDates } from '../services/dateFilterService';
 import { 
   Trash2, 
   Plus, 
@@ -77,7 +78,6 @@ interface AuditUser {
   rank?: string;
   permissions?: UserPermissions;
   forcePasswordChange?: boolean;
-  disabled?: boolean;
   createdAt?: string;
 }
 
@@ -100,7 +100,6 @@ interface SettingsProps {
     prefix: string;
     reportType?: any;
   };
-  logs?: LogEntry[];
 }
 
 type TabType = 'items' | 'images' | 'style' | 'about' | 'admin' | 'manual' | 'reports' | 'vehicles' | 'stations' | 'users' | 'report_editor' | 'cloud' | 'login' | 'logs_admin';
@@ -120,8 +119,7 @@ export const Settings: React.FC<SettingsProps> = ({
   isSyncing,
   connectionStatus,
   onCheckConnection,
-  reportConfig,
-  logs: appLogs
+  reportConfig
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
 
@@ -230,7 +228,17 @@ export const Settings: React.FC<SettingsProps> = ({
   
   // Data States
   const [adminSubTab, setAdminSubTab] = useState<'dashboard' | 'logs' | 'users' | 'audit'>('dashboard');
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const allLogsCacheRef = useRef<LogEntry[] | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>(() => {
+    try {
+      const cached = localStorage.getItem('checkviatura_cached_logs');
+      if (!cached) return [];
+      const parsed = JSON.parse(cached);
+      return Array.isArray(parsed) ? filterLogsLast30Days(parsed) : [];
+    } catch {
+      return [];
+    }
+  });
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [usersList, setUsersList] = useState<AuditUser[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
@@ -276,17 +284,7 @@ export const Settings: React.FC<SettingsProps> = ({
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
-        if (Array.isArray(data)) {
-          // Sanitizar IDs de logs de auditoria
-          const uniqueAudit: Record<string, any> = {};
-          data.forEach((log: any) => {
-            const id = log.id || crypto.randomUUID();
-            if (!uniqueAudit[id]) {
-              uniqueAudit[id] = { ...log, id };
-            }
-          });
-          setAuditLogs(Object.values(uniqueAudit));
-        }
+        if (Array.isArray(data)) setAuditLogs(data);
       }
     } catch (e) {
       console.error("Erro ao buscar logs de auditoria:", e);
@@ -359,6 +357,26 @@ export const Settings: React.FC<SettingsProps> = ({
   }, [activeTab]);
 
   const fetchLogs = async (prefix?: string, month?: string, retryCount = 0) => {
+    const isAllRequested = month === 'all' || month === 'ALL';
+    const cleanPrefix = (prefix && prefix.trim() !== '') ? prefix.trim() : undefined;
+    const cleanMonth = (month && !isAllRequested && month.trim() !== '') ? month.trim() : undefined;
+
+    // Se já temos a lista completa em cache na memória e o usuário está filtrando por mês ou pediu tudo
+    if (allLogsCacheRef.current && allLogsCacheRef.current.length > 0 && retryCount === 0) {
+      if (cleanMonth) {
+        const filtered = filterLogsBySelectedDates(allLogsCacheRef.current, { month: cleanMonth, prefix: cleanPrefix });
+        setLogs(filtered);
+        return;
+      } else if (isAllRequested) {
+        setLogs(cleanPrefix ? filterLogsBySelectedDates(allLogsCacheRef.current, { prefix: cleanPrefix }) : allLogsCacheRef.current);
+        return;
+      } else if (!cleanMonth && !isAllRequested && !cleanPrefix) {
+        // Carga padrão: últimos 30 dias para velocidade instantânea
+        setLogs(filterLogsLast30Days(allLogsCacheRef.current));
+        return;
+      }
+    }
+
     const rawUrl = localSettings.googleSheetUrl || FIXED_GOOGLE_SHEET_URL;
     const targetUrl = rawUrl?.trim();
     
@@ -369,17 +387,11 @@ export const Settings: React.FC<SettingsProps> = ({
     
     if (isLoadingLogs && retryCount === 0) return;
     setIsLoadingLogs(true);
-    
-    const cleanPrefix = (prefix && prefix.trim() !== '') ? prefix.trim() : undefined;
-    const cleanMonth = (month && month !== 'all' && month.trim() !== '') ? month.trim() : undefined;
 
     console.log(`[Tentativa ${retryCount + 1}] Buscando logs: ${targetUrl}`);
     
     try {
-      let url = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getLogs`;
-      if (cleanPrefix) url += `&prefix=${encodeURIComponent(cleanPrefix)}`;
-      if (cleanMonth) url += `&month=${encodeURIComponent(cleanMonth)}`;
-      url += `&_t=${Date.now()}`;
+      let url = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}action=getLogs&_t=${Date.now()}`;
       
       const response = await fetch(url, {
         method: 'GET',
@@ -391,7 +403,18 @@ export const Settings: React.FC<SettingsProps> = ({
 
       const result = await response.json();
       if (Array.isArray(result)) {
-        setLogs(result.filter(log => log && (log.id || log.ID)));
+        const validLogs: LogEntry[] = result.filter(log => log && (log.id || log.ID));
+        allLogsCacheRef.current = validLogs;
+
+        if (cleanMonth) {
+          // Respeita rigorosamente o mês escolhido
+          setLogs(filterLogsBySelectedDates(validLogs, { month: cleanMonth, prefix: cleanPrefix }));
+        } else if (isAllRequested) {
+          setLogs(cleanPrefix ? filterLogsBySelectedDates(validLogs, { prefix: cleanPrefix }) : validLogs);
+        } else {
+          // Ao carregar o sistema carregar no máximo os últimos 30 dias para máxima rapidez
+          setLogs(filterLogsLast30Days(validLogs));
+        }
       }
     } catch (err) {
       console.error(`Erro na tentativa ${retryCount + 1} ao buscar logs:`, err);
@@ -857,7 +880,6 @@ export const Settings: React.FC<SettingsProps> = ({
   };
 
   const handleRemoveStation = (id: string) => {
-    if (!window.confirm('CONFIRMAÇÃO DE ALTERAÇÃO: Deseja realmente EXCLUIR este Posto de Bombeiros?')) return;
     setLocalSettings({
       ...localSettings,
       stations: (localSettings.stations || []).filter(s => s.id !== id)
@@ -910,7 +932,6 @@ export const Settings: React.FC<SettingsProps> = ({
   };
 
   const removeVehicle = (id: string) => {
-    if (!window.confirm('CONFIRMAÇÃO DE ALTERAÇÃO: Deseja realmente EXCLUIR esta Viatura?')) return;
     setLocalSettings({ ...localSettings, vehicles: (localSettings.vehicles || []).filter(v => v.id !== id) });
   };
 
@@ -955,8 +976,7 @@ export const Settings: React.FC<SettingsProps> = ({
     Object.keys(validatedPermissions).forEach(key => {
       const k = key as keyof UserPermissions;
       if (validatedPermissions[k]) {
-        // Regra: Somente pode conceder o que possui
-        const hasPermission = !!currentUser?.permissions?.[k];
+        const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[k];
         const canGrant = isCavalieri || (hasPermission && !restrictedPerms.includes(k as string));
         if (!canGrant) validatedPermissions[k] = false;
       }
@@ -970,7 +990,6 @@ export const Settings: React.FC<SettingsProps> = ({
       name: localUserForm.name,
       rank: localUserForm.rank,
       forcePasswordChange: localUserForm.forcePasswordChange,
-      disabled: localUserForm.disabled || false,
       permissions: validatedPermissions
     };
     
@@ -1015,8 +1034,7 @@ export const Settings: React.FC<SettingsProps> = ({
           Object.keys(validatedPermissions).forEach(key => {
             const k = key as keyof UserPermissions;
             if (validatedPermissions[k]) {
-              // Regra: Somente pode conceder o que possui
-              const hasPermission = !!currentUser?.permissions?.[k];
+              const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[k];
               const canGrant = hasPermission && !restrictedPerms.includes(k as string);
               if (!canGrant) validatedPermissions[k] = false;
             }
@@ -1031,7 +1049,6 @@ export const Settings: React.FC<SettingsProps> = ({
           name: localUserForm.name!,
           rank: localUserForm.rank,
           forcePasswordChange: localUserForm.forcePasswordChange,
-          disabled: localUserForm.disabled || false,
           permissions: validatedPermissions
         };
       }
@@ -1061,7 +1078,6 @@ export const Settings: React.FC<SettingsProps> = ({
       name: u.name,
       rank: u.rank || '',
       forcePasswordChange: u.forcePasswordChange || false,
-      disabled: u.disabled || false,
       permissions: u.permissions
     });
     setIsAddingLocalUser(true); // Re-use the same form area
@@ -1073,37 +1089,13 @@ export const Settings: React.FC<SettingsProps> = ({
       return;
     }
     
-    // Check if user has logs
-    const logsToCheck = logs || appLogs || [];
-    const hasLogs = logsToCheck.some(l => 
-      l.inspector?.toLowerCase() === username.toLowerCase() || 
-      l.inspetor?.toLowerCase() === username.toLowerCase() || 
-      l.conferente?.toLowerCase() === username.toLowerCase()
-    );
-    
-    if (hasLogs) {
-      if (window.confirm(`Este usuário possui lançamentos registrados e não pode ser excluído permanentemente. Deseja DESATIVAR o acesso deste usuário?`)) {
-        handleToggleUserDisabled(id, true);
-      }
-      return;
-    }
-
-    if (window.confirm(`CONFIRMAÇÃO DE ALTERAÇÃO: Tem certeza que deseja EXCLUIR permanentemente o usuário "${username}"? Esta ação não pode ser desfeita.`)) {
+    if (window.confirm(`Tem certeza que deseja excluir o usuário "${username}"?`)) {
       const filteredUsers = (localSettings.users || []).filter(u => u.id !== id);
       setLocalSettings({
         ...localSettings,
         users: filteredUsers
       });
-      alert('Usuário removido da lista local. Clique em "Aplicar Ajustes" para confirmar.');
     }
-  };
-
-  const handleToggleUserDisabled = (id: string, disabled: boolean) => {
-    const updatedUsers = (localSettings.users || []).map(u => 
-      u.id === id ? { ...u, disabled } : u
-    );
-    setLocalSettings({ ...localSettings, users: updatedUsers });
-    alert(`Usuário ${disabled ? 'desativado' : 'ativado'} com sucesso!`);
   };
 
   return (
@@ -1153,15 +1145,33 @@ export const Settings: React.FC<SettingsProps> = ({
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
                 <h3 className="text-xl font-black text-gray-900 uppercase">Gestão de Lançamentos (Mestre)</h3>
-                <p className="text-xs text-gray-500 font-bold">Listagem completa e exclusão de checklists do banco de dados.</p>
+                <p className="text-xs text-gray-500 font-bold">Listagem e exclusão de checklists ({logs.length} registros exibidos).</p>
               </div>
-              <button 
-                onClick={() => fetchLogs()} 
-                className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 py-2 rounded-xl text-xs font-black transition-all"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLogs ? 'animate-spin' : ''}`} />
-                Atualizar Lista
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => fetchLogs()} 
+                  className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-xl text-xs font-black transition-all"
+                  title="Exibir no máximo os últimos 30 dias para máxima rapidez"
+                >
+                  Últimos 30 Dias
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => fetchLogs(undefined, 'all')} 
+                  className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-3 py-2 rounded-xl text-xs font-black transition-all"
+                  title="Carregar todos os lançamentos históricos da planilha"
+                >
+                  Histórico Completo
+                </button>
+                <button 
+                  onClick={() => fetchLogs()} 
+                  className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 py-2 rounded-xl text-xs font-black transition-all"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLogs ? 'animate-spin' : ''}`} />
+                  Atualizar
+                </button>
+              </div>
             </div>
 
             <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-start gap-3">
@@ -1189,8 +1199,8 @@ export const Settings: React.FC<SettingsProps> = ({
                       <td colSpan={5} className="px-4 py-12 text-center text-gray-400 font-black uppercase tracking-widest">Nenhum lançamento encontrado</td>
                     </tr>
                   ) : (
-                    logs.map((log, idx) => (
-                      <tr key={`${log.id}-${idx}`} className="hover:bg-white transition-colors">
+                    logs.map((log) => (
+                      <tr key={log.id} className="hover:bg-white transition-colors">
                         <td className="px-4 py-3 whitespace-nowrap">{new Date(log.date).toLocaleString('pt-BR')}</td>
                         <td className="px-4 py-3 font-black text-blue-600">{log.prefix}</td>
                         <td className="px-4 py-3"><span className="px-2 py-1 bg-gray-100 rounded-md text-[10px] font-black uppercase">{log.checklistType}</span></td>
@@ -1734,8 +1744,8 @@ export const Settings: React.FC<SettingsProps> = ({
             
             <div className="max-h-[400px] overflow-y-auto divide-y border rounded-2xl">
               {(localSettings.vehicles || []).length === 0 && <p className="p-10 text-center text-xs text-gray-400 font-bold uppercase">Nenhuma viatura cadastrada</p>}
-              {(localSettings.vehicles || []).map((v, idx) => (
-                <div key={`${v.id}-${idx}`} className="p-3 flex items-center justify-between hover:bg-gray-50 group">
+              {(localSettings.vehicles || []).map(v => (
+                <div key={v.id} className="p-3 flex items-center justify-between hover:bg-gray-50 group">
                   <div className="grid grid-cols-4 flex-1 gap-4 items-center">
                     <span className="text-[11px] font-black text-gray-800">{v.prefix}</span>
                     <span className="text-[11px] font-mono text-gray-600">{v.plate}</span>
@@ -1885,7 +1895,7 @@ export const Settings: React.FC<SettingsProps> = ({
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-gray-500 uppercase ml-1">Senha</label>
                     <input 
-                      type="password" 
+                      type="text" 
                       value={localUserForm.password} 
                       onChange={e => setLocalUserForm({...localUserForm, password: e.target.value})} 
                       placeholder="••••••••" 
@@ -1922,8 +1932,8 @@ export const Settings: React.FC<SettingsProps> = ({
                       className="w-full bg-white border rounded-2xl p-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500" 
                     />
                   </div>
-                  <div className="space-y-1 md:col-span-2 flex flex-col md:flex-row gap-4 pt-5">
-                    <label className="flex items-center gap-2 cursor-pointer p-3 bg-white border rounded-2xl flex-1 hover:bg-blue-100 transition-colors">
+                  <div className="space-y-1 md:col-span-1 flex items-center pt-5">
+                    <label className="flex items-center gap-2 cursor-pointer p-3 bg-white border rounded-2xl w-full hover:bg-blue-100 transition-colors">
                       <input 
                         type="checkbox" 
                         checked={localUserForm.forcePasswordChange || false} 
@@ -1931,15 +1941,6 @@ export const Settings: React.FC<SettingsProps> = ({
                         className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
                       />
                       <span className="text-[10px] font-black uppercase text-gray-700">Trocar senha no próximo login</span>
-                    </label>
-                    <label className={`flex items-center gap-2 cursor-pointer p-3 bg-white border rounded-2xl flex-1 transition-colors ${localUserForm.disabled ? 'bg-red-50 border-red-200' : 'hover:bg-blue-100'}`}>
-                      <input 
-                        type="checkbox" 
-                        checked={localUserForm.disabled || false} 
-                        onChange={e => setLocalUserForm({...localUserForm, disabled: e.target.checked})} 
-                        className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500" 
-                      />
-                      <span className={`text-[10px] font-black uppercase ${localUserForm.disabled ? 'text-red-600' : 'text-gray-700'}`}>Usuário Desativado</span>
                     </label>
                   </div>
                   <div className="space-y-6 border-t pt-4 md:col-span-4">
@@ -1987,8 +1988,7 @@ export const Settings: React.FC<SettingsProps> = ({
                             { id: 'reports', label: 'Relatórios' },
                           ].map((perm) => {
                             const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
-                            // Regra: Somente pode conceder o que possui
-                            const hasPermission = !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
+                            const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
                             const canEdit = isCavalieri || hasPermission;
 
                             return (
@@ -2024,8 +2024,7 @@ export const Settings: React.FC<SettingsProps> = ({
                             { id: 'manageItems', label: 'Itens' },
                           ].map((perm) => {
                             const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
-                            // Regra: Somente pode conceder o que possui
-                            const hasPermission = !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
+                            const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
                             const canEdit = isCavalieri || hasPermission;
 
                             return (
@@ -2067,7 +2066,7 @@ export const Settings: React.FC<SettingsProps> = ({
                             
                             // Regra: Somente Cavalieri pode conceder permissões restritas.
                             // Para as demais, o usuário deve possuir a permissão para concedê-la.
-                            const hasPermission = !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
+                            const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
                             const canEdit = isCavalieri || (hasPermission && !isRestricted);
                             
                             return (
@@ -2104,8 +2103,7 @@ export const Settings: React.FC<SettingsProps> = ({
                             { id: 'signAsCmtSgb', label: 'CMT SGB' }
                           ].map((perm) => {
                             const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
-                            // Regra: Somente pode conceder o que possui
-                            const hasPermission = !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
+                            const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
                             const canEdit = isCavalieri || hasPermission;
 
                             return (
@@ -2152,8 +2150,7 @@ export const Settings: React.FC<SettingsProps> = ({
                             { id: 'reportKmMonthly', label: 'KM Mensal' },
                           ].map((perm) => {
                             const isCavalieri = currentUser?.username?.toLowerCase() === 'cavalieri';
-                            // Regra: Somente pode conceder o que possui
-                            const hasPermission = !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
+                            const hasPermission = currentUser?.permissions?.admin || !!currentUser?.permissions?.[perm.id as keyof UserPermissions];
                             const canEdit = isCavalieri || hasPermission;
 
                             return (
@@ -2199,34 +2196,22 @@ export const Settings: React.FC<SettingsProps> = ({
                    u.name?.toUpperCase().includes(searchTermUsers) ||
                    u.rank?.toUpperCase().includes(searchTermUsers)
                 )
-                .map((u, idx) => (
-                  <div key={`${u.id}-${idx}`} className={`bg-gray-50 border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${u.disabled ? 'opacity-60 border-red-100 grayscale-[0.5]' : ''}`}>
+                .map(u => (
+                <div key={u.id} className="bg-gray-50 border rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 bg-white border rounded-xl flex items-center justify-center font-black text-xs ${u.disabled ? 'text-red-400' : 'text-blue-600'}`}>
+                    <div className="w-10 h-10 bg-white border rounded-xl flex items-center justify-center font-black text-blue-600 text-xs">
                       {u.username.substring(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-xs font-black uppercase text-gray-900">
-                          {u.rank ? `${u.rank} ` : ''}{u.name || u.username}
-                        </h4>
-                        {u.disabled && (
-                          <span className="text-[7px] font-black uppercase bg-red-600 text-white px-1 rounded shadow-sm animate-pulse">Desativado</span>
-                        )}
-                      </div>
+                      <h4 className="text-xs font-black uppercase text-gray-900">
+                        {u.rank ? `${u.rank} ` : ''}{u.name || u.username}
+                      </h4>
                       <p className="text-[10px] font-bold text-gray-400">@ {u.username} • Senha: ••••••••</p>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {u.forcePasswordChange && (
-                          <div className="flex items-center gap-1 text-[8px] font-black uppercase text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 w-fit">
-                            <Key className="w-2.5 h-2.5" /> Trocar senha
-                          </div>
-                        )}
-                        {u.disabled && (
-                          <div className="flex items-center gap-1 text-[8px] font-black uppercase text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 w-fit">
-                            <X className="w-2.5 h-2.5" /> Inativo
-                          </div>
-                        )}
-                      </div>
+                      {u.forcePasswordChange && (
+                        <div className="mt-1 flex items-center gap-1 text-[8px] font-black uppercase text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 w-fit">
+                          <Key className="w-2.5 h-2.5" /> Trocar senha pendente
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -2350,18 +2335,9 @@ export const Settings: React.FC<SettingsProps> = ({
                       <Key className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={() => handleToggleUserDisabled(u.id, !u.disabled)}
-                      disabled={u.username.toLowerCase() === 'cavalieri'}
-                      className={`p-2 rounded-xl transition-colors ${u.disabled ? 'text-green-500 hover:bg-green-50' : 'text-orange-400 hover:bg-orange-50'} ${u.username.toLowerCase() === 'cavalieri' ? 'opacity-20 cursor-not-allowed' : ''}`}
-                      title={u.disabled ? "Ativar Usuário" : "Desativar Usuário"}
-                    >
-                      {u.disabled ? <ShieldCheck className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
-                    </button>
-                    <button 
                       onClick={() => deleteLocalUser(u.id, u.username)}
                       disabled={u.username.toLowerCase() === 'cavalieri'}
                       className={`p-2 rounded-xl transition-colors ${u.username.toLowerCase() === 'cavalieri' ? 'text-gray-200' : 'hover:bg-red-50 text-red-400'}`}
-                      title="Excluir Usuário"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

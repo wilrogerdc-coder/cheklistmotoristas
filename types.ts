@@ -134,7 +134,6 @@ export interface User {
   rank?: string;
   permissions: UserPermissions;
   forcePasswordChange?: boolean;
-  disabled?: boolean;
 }
 
 export interface DocumentLink {
@@ -168,7 +167,6 @@ export interface AppSettings {
   printScale?: number;
   googleSheetUrl?: string; 
   googleSpreadsheetId?: string;
-  googleDriveFolderId?: string;
   watermarkUrl?: string;
   settingsPassword?: string;
   appName?: string;
